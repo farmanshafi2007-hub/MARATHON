@@ -33,12 +33,16 @@ import {
   Award,
   CheckCircle2,
   Trophy,
-  Clock
+  Clock,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider, 
   onAuthStateChanged, 
   signOut,
@@ -92,12 +96,12 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+      providerInfo: auth?.currentUser?.providerData.map(provider => ({
         providerId: provider.providerId,
         displayName: provider.displayName,
         email: provider.email,
@@ -296,6 +300,20 @@ function parseSafeDate(ts: any): Date {
     return isNaN(d.getTime()) ? new Date() : d;
 }
 
+// --- SAFE JSON PARSER ---
+function safeJsonParse(str: string | null, fallback: any): any {
+    if (!str) return fallback;
+    try {
+        const parsed = JSON.parse(str);
+        if (parsed === null || parsed === undefined) return fallback;
+        if (Array.isArray(fallback) && !Array.isArray(parsed)) return fallback;
+        return parsed;
+    } catch (e) {
+        console.warn("JSON parsing failed for stored string:", e);
+        return fallback;
+    }
+}
+
 // --- APP COMPONENT ---
 export default function AppWrapper() {
   return (
@@ -315,6 +333,27 @@ function App() {
     const [isDeveloper, setIsDeveloper] = useState(false);
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [activeProgressTab, setActiveProgressTab] = useState<'W' | 'M' | 'Y'>('M');
+
+    // UI Dark Mode Theme State
+    const [darkMode, setDarkMode] = useState<boolean>(() => {
+        try {
+            const saved = localStorage.getItem('darkMode');
+            return saved === 'true';
+        } catch (e) {
+            return false;
+        }
+    });
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('darkMode', String(darkMode));
+        } catch (e) {}
+        if (darkMode) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+    }, [darkMode]);
 
     // UI Render State
     const [isRunning, setIsRunning] = useState(false);
@@ -360,36 +399,43 @@ function App() {
 
     useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 
-    // Validate Connection
+    // Validate Connection and Handle Redirect Result (Session Restore)
     useEffect(() => {
-      async function testConnection() {
+      async function handleStartup() {
+        console.log("[Auth] Booting up state diagnostics...");
+        if (auth) {
+          try {
+            console.log("[Auth] Checking redirect result on startup...");
+            const result = await getRedirectResult(auth);
+            if (result) {
+              console.log("[Auth] Successfully signed in via redirect!", result.user.email);
+              setUser(result.user);
+            } else {
+              console.log("[Auth] No active redirect result during boot.");
+            }
+          } catch (redirectErr: any) {
+            console.error("[Auth] Redirect result processing failed:", redirectErr);
+          }
+        }
+
         if (!db) return;
         try {
           await getDocFromServer(doc(db, 'test', 'connection'));
+          console.log("[Auth] Connection test to Firestore succeeded.");
         } catch (error) {
           if(error instanceof Error && error.message.includes('the client is offline')) {
             console.error("Please check your Firebase configuration. ");
           }
         }
       }
-      testConnection();
+      handleStartup();
     }, []);
 
     // Graceful Auth Timeout to prevent blank screens under slow/failed Firebase loading
     useEffect(() => {
       const timer = setTimeout(() => {
         if (!isAuthReady) {
-          console.warn("Auth initialization timed out. Defaulting to local guest performance mode.");
-          const guestUser = {
-            uid: 'guest_athlete_1',
-            displayName: 'Guest Athlete',
-            email: 'guest@sports.org',
-            photoURL: null,
-            emailVerified: true,
-            isAnonymous: true,
-            providerData: []
-          } as any;
-          setUser(guestUser);
+          console.warn("Auth initialization timed out. Transitioning to onboarding/login screen.");
           setIsAuthReady(true);
         }
       }, 3000);
@@ -421,9 +467,24 @@ function App() {
             setIsDeveloper(true);
           }
         } else {
+          // Robust real-time purge logic on logout
           setIsDeveloper(false);
           setUserData(null);
           setRuns([]);
+          
+          setIsRunning(false);
+          setIsPaused(false);
+          setAutoPaused(false);
+          setElapsed(0);
+          setDistance(0);
+          setCurrentSpeed(0);
+          setAccuracy(0);
+          setGpsStatus("WAITING");
+          setLastSummary(null);
+          
+          setAiBriefing(null);
+          setAiWorkout(null);
+          setAiAnalysis(null);
         }
       }, (error) => {
         console.error("Auth listen error:", error);
@@ -455,7 +516,7 @@ function App() {
           // Absolute local storage fallback for offline/sandbox
           const localUserData = localStorage.getItem(`user_profile_${user.uid}`);
           if (localUserData) {
-            setUserData(JSON.parse(localUserData));
+            setUserData(safeJsonParse(localUserData, null));
           } else {
             const initialProfile = {
               name: user.displayName || "Athlete",
@@ -476,7 +537,7 @@ function App() {
 
           const localRuns = localStorage.getItem(`user_runs_${user.uid}`);
           if (localRuns) {
-            setRuns(JSON.parse(localRuns));
+            setRuns(safeJsonParse(localRuns, []));
           } else {
             setRuns([]);
           }
@@ -509,7 +570,7 @@ function App() {
           console.error("Firestore loading error:", error);
           const localUserData = localStorage.getItem(`user_profile_${user.uid}`);
           if (localUserData) {
-            setUserData(JSON.parse(localUserData));
+            setUserData(safeJsonParse(localUserData, null));
           }
         });
 
@@ -525,7 +586,7 @@ function App() {
           console.error("Firestore loading runs error:", error);
           const localRuns = localStorage.getItem(`user_runs_${user.uid}`);
           if (localRuns) {
-            setRuns(JSON.parse(localRuns));
+            setRuns(safeJsonParse(localRuns, []));
           }
         });
       }
@@ -970,19 +1031,44 @@ function App() {
         const [step, setStep] = useState(0);
         const [isSigningIn, setIsSigningIn] = useState(false);
         const [authError, setAuthError] = useState<string | null>(null);
+        const [showRedirectOption, setShowRedirectOption] = useState(false);
 
-        const handleLogin = async () => {
+        const handleLogin = async (useRedirect = false) => {
             setIsSigningIn(true);
             setAuthError(null);
+            console.log(`[Auth] Initiating Google Auth: method=${useRedirect ? "redirect" : "popup"}`);
             try {
               if (!auth) {
                 throw new Error("Authentication services are currently offline. Running in high-fidelity sandbox mode.");
               }
               const provider = new GoogleAuthProvider();
-              await signInWithPopup(auth, provider);
+              provider.setCustomParameters({ prompt: 'select_account' });
+              
+              if (useRedirect) {
+                await signInWithRedirect(auth, provider);
+              } else {
+                await signInWithPopup(auth, provider);
+              }
             } catch (err: any) {
-              console.error(err);
-              setAuthError(err.message || "Authentication aborted by player or connection lost.");
+              console.error("[Auth] Google sign-in operation failed:", err);
+              let errorMessage = "Authentication was aborted or connection was lost.";
+              
+              if (err.code === "auth/popup-blocked") {
+                errorMessage = "The login popup was blocked by your browser settings. Click 'Use Google Redirect' below to authenticate via standard redirect.";
+                setShowRedirectOption(true);
+              } else if (err.code === "auth/popup-closed-by-user") {
+                errorMessage = "The login popup was closed before completion. Click Google button again, or choose the Redirect option below.";
+                setShowRedirectOption(true);
+              } else if (err.code === "auth/cancelled-popup-request") {
+                errorMessage = "A sign-in request is already in progress. Please complete the open window.";
+              } else if (err.code === "auth/operation-not-allowed") {
+                errorMessage = "Google Auth is disabled in the Firebase Console. Please enable this provider in authentication settings.";
+              } else if (err.message) {
+                errorMessage = err.message;
+              }
+              
+              setAuthError(errorMessage);
+              
               // Fallback to offline guest automatically on config-level missing auth
               if (!auth) {
                 const guestUser = {
@@ -1096,13 +1182,13 @@ function App() {
                         <>
                             <button 
                                 id="google-login-btn"
-                                onClick={handleLogin}
+                                onClick={() => handleLogin(false)}
                                 disabled={isSigningIn}
                                 className="w-full py-4 bg-white text-slate-900 rounded-2xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-3 border border-slate-200 disabled:opacity-50 cursor-pointer"
                             >
                                 {isSigningIn ? (
                                     <>
-                                        <Loader2 className="animate-spin text-slate-700 hover:opacity-80" size={18} />
+                                        <Loader2 className="animate-spin text-slate-700" size={18} />
                                         <span>Synchronizing Profile...</span>
                                     </>
                                 ) : (
@@ -1117,6 +1203,20 @@ function App() {
                                     </>
                                 )}
                             </button>
+                            
+                            {showRedirectOption && (
+                                <button 
+                                    id="google-redirect-btn"
+                                    onClick={() => handleLogin(true)}
+                                    disabled={isSigningIn}
+                                    className="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-3 border border-zinc-800 disabled:opacity-50 cursor-pointer hover:bg-zinc-800 duration-300"
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M5 12h14M12 5l7 7-7 7" />
+                                    </svg>
+                                    <span className="font-sans">Use Google Redirect</span>
+                                </button>
+                            )}
                             
                             <button 
                                 id="onboarding-guest-btn"
@@ -1768,10 +1868,28 @@ function App() {
                         className="px-5 py-4 flex items-center justify-between border-b border-slate-50 cursor-pointer hover:bg-slate-50 transition-colors"
                     >
                         <div className="flex items-center gap-3">
-                            <Activity size={18} className="text-slate-600" />
-                            <span className="text-xs font-bold text-slate-800">Edit Profile Parameters</span>
+                            <Activity size={18} className="text-slate-600 dark:text-slate-300" />
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-100">Edit Profile Parameters</span>
                         </div>
                         <ChevronRight size={14} className="text-slate-400" />
+                    </div>
+
+                    <div 
+                        id="menu-btn-theme"
+                        onClick={() => setDarkMode(!darkMode)}
+                        className="px-5 py-4 flex items-center justify-between border-b border-slate-50 cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                        <div className="flex items-center gap-3">
+                            {darkMode ? <Moon size={18} className="text-violet-400" /> : <Sun size={18} className="text-amber-500" />}
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-100 font-sans">Dark Mode Theme</span>
+                        </div>
+                        <div
+                            id="theme-toggle-switch"
+                            onClick={(e) => { e.stopPropagation(); setDarkMode(!darkMode); }}
+                            className={`w-10 h-6 flex items-center rounded-full p-0.5 cursor-pointer transition-colors duration-300 ${darkMode ? 'bg-[#34c759]' : 'bg-slate-200'}`}
+                        >
+                            <div className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-300 ${darkMode ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
                     </div>
 
                     <div 
@@ -1780,8 +1898,8 @@ function App() {
                         className="px-5 py-4 flex items-center justify-between border-b border-slate-50 cursor-pointer hover:bg-slate-50 transition-colors"
                     >
                         <div className="flex items-center gap-3">
-                            <Shield size={18} className="text-slate-600" />
-                            <span className="text-xs font-bold text-slate-800">Privacy & Telemetry Policy</span>
+                            <Shield size={18} className="text-slate-600 dark:text-slate-300" />
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-100">Privacy & Telemetry Policy</span>
                         </div>
                         <ChevronRight size={14} className="text-slate-400" />
                     </div>
@@ -1791,8 +1909,8 @@ function App() {
                         className="px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors block cursor-pointer"
                     >
                         <div className="flex items-center gap-3">
-                            <MessageSquare size={18} className="text-slate-600" />
-                            <span className="text-xs font-bold text-slate-800">Submit Customer Escalation</span>
+                            <MessageSquare size={18} className="text-slate-600 dark:text-slate-300" />
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-100">Submit Customer Escalation</span>
                         </div>
                         <ChevronRight size={14} className="text-slate-400" />
                     </a>
@@ -1801,7 +1919,39 @@ function App() {
                 {/* Apple Standard Logout Row */}
                 <button 
                     id="more-logout-action-btn"
-                    onClick={async () => { if(confirm("Are you sure you want to sign out?")) { try { if (auth) { await signOut(auth); } else { setUser(null); setIsAuthReady(true); } } catch(e) {} }}} 
+                    onClick={async () => { 
+                        if (confirm("Are you sure you want to sign out of your Runo performance profile?")) { 
+                            try { 
+                                console.log("[Auth] Initiating systemic sign out procedure.");
+                                if (auth) { 
+                                    await signOut(auth); 
+                                }
+                                // Explicitly purge local session contexts to guarantee instant real-time response
+                                setUser(null);
+                                setUserData(null);
+                                setRuns([]);
+                                
+                                setIsRunning(false);
+                                setIsPaused(false);
+                                setAutoPaused(false);
+                                setElapsed(0);
+                                setDistance(0);
+                                setCurrentSpeed(0);
+                                setAccuracy(0);
+                                setGpsStatus("WAITING");
+                                setLastSummary(null);
+                                
+                                setAiBriefing(null);
+                                setAiWorkout(null);
+                                setAiAnalysis(null);
+                                
+                                setView('onboarding');
+                                console.log("[Auth] Offline cache clean & sign out successful.");
+                            } catch (e) {
+                                console.error("[Auth] Systemic sign out encountered an error:", e);
+                            } 
+                        } 
+                    }} 
                     className="w-full py-4 bg-red-50 text-red-600 hover:bg-red-100 rounded-2xl font-bold text-xs transition-colors tracking-widest uppercase mb-10"
                 >
                     SIGN OUT
@@ -2096,7 +2246,7 @@ function App() {
         <div id="profile-view" className="absolute inset-0 px-6 pt-6 overflow-y-auto custom-scroll w-full h-full">
             <IndianClock />
             <header className="flex items-center gap-4 mb-8 mt-4">
-                <button id="profile-back-btn" onClick={() => setView('more')} className="p-3 bg-white border border-slate-100 rounded-2xl active:scale-95 transition-transform"><ChevronLeft size={18} color="#1c1c1e"/></button>
+                <button id="profile-back-btn" onClick={() => setView('more')} className="p-3 bg-white border border-slate-100 rounded-2xl active:scale-95 transition-transform"><ChevronLeft size={18} color={darkMode ? "#ffffff" : "#1c1c1e"}/></button>
                 <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Edit Profile</h1>
             </header>
 
@@ -2157,7 +2307,7 @@ function App() {
     const Privacy = () => (
         <div id="privacy-policy-view" className="fixed inset-0 z-[100] bg-slate-50 text-slate-900 flex flex-col w-full h-full">
             <header className="px-5 pt-16 pb-4 border-b border-slate-100 bg-white flex items-center justify-between sticky top-0 z-10">
-                <button id="privacy-back-btn" onClick={() => setView('more')} className="p-3 bg-[#e3e3e9] rounded-2xl active:scale-95 transition-transform"><ChevronLeft size={18} color="#1c1c1e"/></button>
+                <button id="privacy-back-btn" onClick={() => setView('more')} className="p-3 bg-[#e3e3e9] rounded-2xl active:scale-95 transition-transform"><ChevronLeft size={18} color={darkMode ? "#ffffff" : "#1c1c1e"}/></button>
                 <h3 className="text-lg font-extrabold tracking-tight text-slate-800">Telemetry Privacy</h3>
                 <div className="w-10"></div>
             </header>

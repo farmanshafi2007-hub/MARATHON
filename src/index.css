@@ -236,3 +236,136 @@ body, html {
 .number-pop {
     transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
+
+/* ==========================================================================
+   TRUE DARK MODE OVERRIDES (iOS Style)
+   ========================================================================== */
+
+/* Toggle html/body level background */
+.dark,
+.dark body,
+.dark html,
+.dark #device-screen-wrapper,
+.dark #workout-summary-container,
+.dark #privacy-policy-view,
+.dark #profile-view {
+    background-color: #000000 !important;
+    background-image: none !important;
+    color: #ffffff !important;
+}
+
+/* Background mappings */
+.dark .bg-white,
+.dark .bg-slate-50 {
+    background-color: #1c1c1e !important;
+}
+
+.dark .bg-slate-100 {
+    background-color: #2c2c2e !important;
+}
+
+.dark .bg-[#e3e3e9] {
+    background-color: #2c2c2e !important;
+}
+
+/* Force dark mode for standard fitness card components */
+.dark .fitness-card {
+    background-color: #1c1c1e !important;
+    border-color: #2c2c2e !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* Border color overrides */
+.dark header,
+.dark .border,
+.dark .border-slate-50,
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300,
+.dark .border-b,
+.dark .border-t,
+.dark .border-r,
+.dark .border-l {
+    border-color: #2c2c2e !important;
+}
+
+/* Text color mappings to ensure readability and high contrast */
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-gray-900,
+.dark .text-gray-800 {
+    color: #ffffff !important;
+}
+
+.dark p,
+.dark .text-slate-700,
+.dark .text-slate-600,
+.dark .text-gray-700,
+.dark .text-gray-600 {
+    color: #e4e4e7 !important;
+}
+
+.dark .text-slate-500,
+.dark .text-slate-400,
+.dark .text-gray-500,
+.dark .text-gray-400 {
+    color: #9f9fbf !important;
+}
+
+.dark .text-slate-300 {
+    color: #d4d4d8 !important;
+}
+
+/* Hover and Interaction changes */
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover,
+.dark .cursor-pointer:hover {
+    background-color: #2c2c2e !important;
+}
+
+.dark .active\:scale-95 {
+    background-color: #2c2c2e !important;
+    border-color: #3a3a3c !important;
+}
+
+/* Input elements inside setup profiles/edit parameters */
+.dark input,
+.dark select,
+.dark textarea {
+    background-color: #1c1c1e !important;
+    color: #ffffff !important;
+    border-color: #3a3a3c !important;
+}
+.dark input::placeholder {
+    color: #71717a !important;
+}
+
+/* Premium bottom dock navigation tab overrides */
+.dark .nav-pill {
+    background-color: rgba(28, 28, 30, 0.9) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8) !important;
+}
+
+.dark .nav-item:not(.active) {
+    color: #aa8e93 !important;
+}
+
+.dark .nav-item:not(.active):hover {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Special indicators and gradients */
+.dark .progress-ring {
+    filter: drop-shadow(0 0 12px rgba(52, 199, 89, 0.2));
+}
+
+.dark .bg-gradient-to-br.from-indigo-950 {
+    background: linear-gradient(to bottom right, #111116, #181825, #0a0a0f) !important;
+    border: 1px solid #222235 !important;
+}
+
