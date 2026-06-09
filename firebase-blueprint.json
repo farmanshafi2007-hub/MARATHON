@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "DevUpdate": {
+      "title": "Developer Update",
+      "description": "An image update posted by the developer for all users to see.",
+      "type": "object",
+      "properties": {
+        "imageUrl": {
+          "type": "string",
+          "description": "The URL of the uploaded image."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The time the update was posted."
+        },
+        "authorUid": {
+          "type": "string",
+          "description": "The UID of the developer who posted the update."
+        }
+      },
+      "required": ["imageUrl", "createdAt", "authorUid"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Basic profile information for a fitness athlete.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "streak": { "type": "integer" },
+        "totalKm": { "type": "number" },
+        "shields": { "type": "integer" },
+        "profilePic": { "type": "string" },
+        "joined": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/dev_updates/{updateId}": {
+      "schema": "DevUpdate",
+      "description": "Collection of updates visible to all users."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Private user profiles."
+    }
+  }
+}

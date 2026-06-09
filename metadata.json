@@ -1,0 +1,6 @@
+{
+  "name": "Runo Elite Fitness",
+  "description": "A high-performance fitness tracking app with AI coaching, real-time GPS tracking, and developer updates.",
+  "requestFramePermissions": ["geolocation", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
