@@ -1132,7 +1132,7 @@ function App() {
                 
                 {/* Carousel Card */}
                 <div className="flex flex-col items-center max-w-sm w-full my-auto">
-                    <AnimatePresence mode="wait">
+                    <>
                         <motion.div
                             key={step}
                             initial={{ opacity: 0, x: 40 }}
@@ -1149,7 +1149,7 @@ function App() {
                                 {slides[step].description}
                             </p>
                         </motion.div>
-                    </AnimatePresence>
+                    </>
 
                     {/* Step Dots indicator */}
                     <div className="flex gap-2.5 mt-8 justify-center">
@@ -2497,7 +2497,7 @@ function App() {
 
     return (
         <div id="device-screen-wrapper" className="fixed inset-0 w-full h-full bg-[#f2f2f7] overflow-hidden">
-            <AnimatePresence mode="wait">
+            <>
                 {view === 'splash' && <Splash key="splash" />}
                 {view === 'home' && <Home key="home" />}
                 {view === 'plan' && <PlanView key="plan" />}
@@ -2508,7 +2508,7 @@ function App() {
                 {view === 'profile' && <Profile key="profile" />}
                 {view === 'privacy' && <Privacy key="privacy" />}
                 {view === 'onboarding' && <Onboarding key="onboarding" />}
-            </AnimatePresence>
+            </>
 
             {['home', 'plan', 'run_tab', 'progress', 'more', 'profile'].includes(view) && (
                 <div className="nav-dock-container pointer-events-none">
