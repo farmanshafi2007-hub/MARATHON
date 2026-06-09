@@ -135,10 +135,17 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   render() {
     if (this.state.hasError) {
       let message = "Something went wrong.";
-      try {
-        const parsed = JSON.parse(this.state.error.message);
-        if (parsed.error) message = parsed.error;
-      } catch (e) {}
+      if (this.state.error) {
+        if (typeof this.state.error === 'string') {
+          message = this.state.error;
+        } else if (this.state.error.message) {
+          message = this.state.error.message;
+          try {
+            const parsed = JSON.parse(this.state.error.message);
+            if (parsed && parsed.error) message = parsed.error;
+          } catch (e) {}
+        }
+      }
       
       return (
         <div className="flex flex-col items-center justify-center h-screen bg-slate-50 p-8 text-center">
@@ -249,6 +256,44 @@ class GPSEngine {
 
         return { status: 'NOISE', distance: this.totalDistance, accuracy };
     }
+}
+
+// --- SAFE DATE PARSER ---
+function parseSafeDate(ts: any): Date {
+    if (!ts) return new Date();
+    
+    // 1. If it has a toDate method (real Timestamp instance)
+    if (typeof ts.toDate === 'function') {
+        try {
+            return ts.toDate();
+        } catch (e) {
+            console.error("Error running toDate on timestamp object:", e);
+        }
+    }
+    
+    // 2. If it is a JSON-parsed Timestamp object { seconds, nanoseconds }
+    if (typeof ts === 'object' && ts !== null && typeof ts.seconds === 'number') {
+         return new Date(ts.seconds * 1000);
+    }
+    
+    // 3. If it's a number (milliseconds or seconds)
+    if (typeof ts === 'number') {
+        // If it's in seconds instead of milliseconds
+        if (ts < 30000000000) {
+            return new Date(ts * 1000);
+        }
+        return new Date(ts);
+    }
+    
+    // 4. If it's a date string
+    if (typeof ts === 'string') {
+        const d = new Date(ts);
+        if (!isNaN(d.getTime())) return d;
+    }
+    
+    // Fallback
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? new Date() : d;
 }
 
 // --- APP COMPONENT ---
@@ -1123,7 +1168,7 @@ function App() {
             endOfWeek.setDate(startOfWeek.getDate() + 7);
             
             runs.forEach(run => {
-                const t = run.timestamp instanceof Timestamp ? run.timestamp.toDate() : new Date(run.timestamp);
+                const t = parseSafeDate(run.timestamp);
                 if (t >= startOfWeek && t < endOfWeek) {
                     let dayIndex = t.getDay() - 1; // Mon is 0, Tue is 1, Sun is -1
                     if (dayIndex === -1) dayIndex = 6; // Sun becomes 6
@@ -1264,7 +1309,7 @@ function App() {
                                     <div>
                                         <p className="font-bold text-slate-900 text-sm">{run.name}</p>
                                         <p className="text-[10px] font-medium text-slate-400 mt-0.5">
-                                            {run.timestamp instanceof Timestamp ? run.timestamp.toDate().toLocaleDateString() : new Date(run.timestamp).toLocaleDateString()}
+                                            {parseSafeDate(run.timestamp).toLocaleDateString()}
                                         </p>
                                     </div>
                                 </div>
@@ -1462,7 +1507,7 @@ function App() {
             const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
             runs.forEach(run => {
-                const t = run.timestamp instanceof Timestamp ? run.timestamp.toDate() : new Date(run.timestamp);
+                const t = parseSafeDate(run.timestamp);
                 const rM = t.getMonth();
                 const rY = t.getFullYear();
                 if (rM === currentMonth && rY === currentYear) {
@@ -1485,7 +1530,7 @@ function App() {
             const currentYear = now.getFullYear();
 
             runs.forEach(run => {
-                const t = run.timestamp instanceof Timestamp ? run.timestamp.toDate() : new Date(run.timestamp);
+                const t = parseSafeDate(run.timestamp);
                 if (t.getMonth() === currentMonth && t.getFullYear() === currentYear) {
                     const dom = t.getDate(); // 1 to 31
                     const sliceIdx = Math.min(3, Math.floor((dom - 1) / 7.5));
