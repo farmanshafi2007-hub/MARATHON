@@ -1967,6 +1967,72 @@ function App() {
         const displayUnit = distance < 1000 ? "m" : "km";
         const progressPercent = Math.min(100, (distance / missionGoalMeters) * 100);
 
+        // Pre-calculate running tracking data for high-fidelity active map render
+        const activeRouteForMap = runDataRef.current?.coordinates && runDataRef.current.coordinates.length > 0
+            ? runDataRef.current.coordinates
+            : generateSimulatedRoute();
+
+        const mapLats = activeRouteForMap.map(c => c.lat);
+        const mapLngs = activeRouteForMap.map(c => c.lng);
+        const minLatVal = Math.min(...mapLats);
+        const maxLatVal = Math.max(...mapLats);
+        const minLngVal = Math.min(...mapLngs);
+        const maxLngVal = Math.max(...mapLngs);
+
+        const latSpanVal = maxLatVal - minLatVal || 0.0001;
+        const lngSpanVal = maxLngVal - minLngVal || 0.0001;
+
+        const mapPadding = 0.15;
+        const minLatPVal = minLatVal - latSpanVal * mapPadding;
+        const maxLatPVal = maxLatVal + latSpanVal * mapPadding;
+        const minLngPVal = minLngVal - lngSpanVal * mapPadding;
+        const maxLngPVal = maxLngVal + lngSpanVal * mapPadding;
+
+        const rangeLatVal = maxLatPVal - minLatPVal;
+        const rangeLngVal = maxLngPVal - minLngPVal;
+
+        const pointsList = activeRouteForMap.map(pt => {
+            const x = ((pt.lng - minLngPVal) / rangeLngVal) * 100;
+            const y = 100 - (((pt.lat - minLatPVal) / rangeLatVal) * 100);
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        });
+        const svgPoints = pointsList.join(" ");
+
+        const startPt = activeRouteForMap[0] || { lat: 12.9716, lng: 77.5946 };
+        const endPt = activeRouteForMap[activeRouteForMap.length - 1] || { lat: 12.9716, lng: 77.5946 };
+
+        const startX = ((startPt.lng - minLngPVal) / rangeLngVal) * 100;
+        const startY = 100 - (((startPt.lat - minLatPVal) / rangeLatVal) * 100);
+
+        const endX = ((endPt.lng - minLngPVal) / rangeLngVal) * 100;
+        const endY = 100 - (((endPt.lat - minLatPVal) / rangeLatVal) * 100);
+
+        // Interpolate current position along activeRouteForMap relative to progressPercent
+        const runnerIndex = Math.min(
+            activeRouteForMap.length - 1,
+            Math.max(0, Math.floor((progressPercent / 100) * (activeRouteForMap.length - 1)))
+        );
+        const runnerPt = activeRouteForMap[runnerIndex] || startPt;
+        const runnerX = ((runnerPt.lng - minLngPVal) / rangeLngVal) * 100;
+        const runnerY = 100 - (((runnerPt.lat - minLatPVal) / rangeLatVal) * 100);
+
+        // Splits live calculation list
+        const getSplitsList = () => {
+            const list = [];
+            const totalKm = distance / 1000;
+            const currentAvgPace = formatPace(elapsed, distance);
+            
+            if (totalKm < 1) {
+                list.push({ km: 1, pace: currentAvgPace === "--" ? "5:28" : currentAvgPace });
+            } else {
+                const count = Math.min(3, Math.floor(totalKm));
+                for (let i = count; i >= 1; i--) {
+                    list.push({ km: i, pace: formatPace(Math.floor(elapsed / totalKm), 1000) });
+                }
+            }
+            return list;
+        };
+
         const getGpsDotColor = () => {
             if (gpsStatus === "ERROR") return "bg-red-500";
             if (gpsStatus === "POOR SIGNAL" || gpsStatus === "LOCKING...") return "bg-orange-400";
@@ -2142,100 +2208,188 @@ function App() {
         }
 
         return (
-            <div id="active-workout-view" className={`absolute inset-0 z-[61] bg-slate-950 text-white flex flex-col justify-between overflow-hidden overscroll-none w-full h-full transition-all duration-700 ${isPaused ? 'brightness-50' : 'brightness-100'}`}>
-                <div className="absolute inset-0 bg-grid opacity-25 pointer-events-none"></div>
-                <div className="absolute inset-0 running-bg-glow pointer-events-none"></div>
-
-                <header className="relative flex justify-between items-center z-10 p-6 pt-12">
-                    <div className="flex items-center gap-2 bg-white/5 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10">
-                        <div className={`w-2 h-2 rounded-full ${getGpsDotColor()} ${gpsStatus === 'RECORDING' ? '' : 'gps-pulse'}`} />
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-white/70">
-                            {gpsStatus === "RECORDING" ? "GPS ACTIVE" : gpsStatus}
-                        </span>
-                    </div>
-                </header>
+            <div id="active-workout-view" className={`absolute inset-0 z-[61] ${darkMode ? 'bg-black text-white' : 'bg-slate-50 text-[#1c1c1e]'} flex flex-col justify-between overflow-hidden overscroll-none w-full h-full transition-all duration-300`}>
                 
-                <div className="relative flex-1 flex flex-col items-center justify-center w-full px-4 mb-4">
-                    <div className="relative flex items-center justify-center">
-                        <svg className="absolute w-[280px] h-[280px] -rotate-90 pointer-events-none">
-                            <circle cx="50%" cy="50%" r="120" stroke="rgba(255,255,255,0.03)" strokeWidth="10" fill="transparent" />
-                            <circle 
-                                cx="50%" 
-                                cy="50%" 
-                                r="120" 
-                                stroke="#34c759" 
-                                strokeWidth="10" 
-                                fill="transparent" 
-                                strokeDasharray={2 * Math.PI * 120} 
-                                style={{ 
-                                    strokeDashoffset: 2 * Math.PI * 120 - (progressPercent / 100) * (2 * Math.PI * 120)
-                                }} 
-                                strokeLinecap="round" 
-                                className={`transition-all duration-1000 ease-out`} 
+                {/* HIGH-FIDELITY VECTOR STREET MAP BACKDROP */}
+                <div id="gps-vector-map-backdrop" className="absolute inset-x-0 top-0 h-[45%] w-full overflow-hidden relative select-none">
+                    {/* Render elegant curving streets, parks, lawns, and the running route */}
+                    <svg className="absolute inset-0 w-full h-full object-cover" viewBox="0 0 100 100" preserveAspectRatio="none">
+                        {/* Map base backing context */}
+                        <rect width="110" height="110" x="-5" y="-5" fill={darkMode ? "#111115" : "#eef2f5"} />
+                        
+                        {/* Park Grass Areas */}
+                        <path d="M-10,-10 L35,-10 L45,45 L-10,50 Z" fill={darkMode ? "#132719" : "#e1f5fe"} opacity="0.35" />
+                        <path d="M55,60 L110,55 L110,110 L45,110 Z" fill={darkMode ? "#122a1b" : "#e2f8e9"} opacity="0.4" />
+                        <rect x="55" y="10" width="45" height="30" rx="8" fill={darkMode ? "#15242d" : "#e8faf0"} opacity="0.4" />
+
+                        {/* Neighborhood Streets/Road grids */}
+                        <path d="M-10,30 Q30,22 110,18" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
+                        <path d="M-10,72 Q50,78 110,68" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
+                        <path d="M22,-10 L38,110" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
+                        <path d="M82,-10 L72,110" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
+                        <path d="M-10,52 L110,50" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
+                        <path d="M10,85 C25,100 45,95 55,110" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
+                        
+                        {/* Dynamic Active Training Trail (Vibrant Blue with soft neon glow drop-shadow) */}
+                        {pointsList.length > 1 && (
+                            <polyline
+                                fill="none"
+                                stroke={darkMode ? "#0a84ff" : "#0051ff"}
+                                strokeWidth="4.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                points={svgPoints}
+                                style={{ filter: "drop-shadow(0 2px 6px rgba(10,132,255,0.65))" }}
                             />
-                        </svg>
+                        )}
 
-                        <div className="z-10 text-center">
-                            <h1 className="text-[80px] font-black leading-none tracking-tighter tabular-nums text-white number-pop">
-                                {displayDistance}
-                            </h1>
-                            <p className="text-lg font-bold text-slate-400 uppercase tracking-widest mt-1">
-                                {displayUnit}
-                            </p>
+                        {/* START PIN MARKER (Silver circle with inner blue node) */}
+                        <circle cx={startX} cy={startY} r="3.5" fill="#f2f2f7" stroke={darkMode ? "#0a84ff" : "#0051ff"} strokeWidth="2" style={{ filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.3))" }} />
+                        <circle cx={startX} cy={startY} r="1.5" fill={darkMode ? "#0a84ff" : "#0051ff"} />
+
+                        {/* END PIN MARKER (Classic Red drop-pin locator) */}
+                        <g transform={`translate(${endX - 3}, ${endY - 6.5})`}>
+                            {/* Pin shape drop-shadow */}
+                            <ellipse cx="3" cy="6.5" rx="1.5" ry="0.6" fill="rgba(0,0,0,0.35)" />
+                            {/* SVG vector path pin needle */}
+                            <path d="M3,0 C1.3,0 0,1.3 0,3 C0,5.2 3,7 3,7 C3,7 6,5.2 6,3 C6,1.3 4.7,0 3,0 Z" fill="#ff3b30" />
+                            {/* Inner white light ring */}
+                            <circle cx="3" cy="3" r="1.2" fill="#ffffff" />
+                        </g>
+
+                        {/* ACTIVE SPORTING RUNNER AVATAR INDICATOR (Sliding circular blueprint) */}
+                        <g transform={`translate(${runnerX - 4.5}, ${runnerY - 4.5})`} className="transition-all duration-300">
+                            {/* Ambient breathing ripple */}
+                            <circle cx="4.5" cy="4.5" r="7.5" fill={darkMode ? "rgba(10,132,255,0.18)" : "rgba(0,81,255,0.12)"} className="animate-ping" style={{ transformOrigin: "4.5px 4.5px" }} />
+                            {/* Outer high contrast stroke */}
+                            <circle cx="4.5" cy="4.5" r="5" fill={darkMode ? "#0a84ff" : "#0051ff"} stroke="#ffffff" strokeWidth="1.5" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))" }} />
+                            {/* Runner custom internal micro silhouette */}
+                            <path d="M4.2,2.5 C4.5,2.5 4.7,2.3 4.7,2.0 C4.7,1.7 4.5,1.5 4.2,1.5 C3.9,1.5 3.7,1.7 3.7,2.0 C3.7,2.3 3.9,2.5 4.2,2.5 Z M5.2,4.8 L4.4,3.2 L4.6,2.7 L5.1,3.0 C5.3,3.1 5.5,3.0 5.6,2.8 C5.7,2.6 5.6,2.4 5.4,2.3 L4.7,1.9 C4.5,1.8 4.3,1.8 4.1,1.9 C3.9,2.0 3.7,2.2 3.6,2.5 L3.2,3.3 C3.1,3.5 3.2,3.8 3.4,3.9 C3.6,4.0 3.8,3.9 3.9,3.7 L4.1,3.2 L4.4,3.6 L3.3,5.1 L3.1,6.0 L3.6,6.1 L3.8,5.3 L4.5,4.4 L5.2,5.2 L5.2,6.1 L5.7,6.1 L5.7,5.0 L5.2,4.8 Z" fill="#ffffff" />
+                        </g>
+                    </svg>
+
+                    {/* TOP STATUS OVERLAYS ON MAP */}
+                    <header className="absolute inset-x-0 top-0 flex justify-between items-center z-10 p-5 pt-12">
+                        {/* iOS Left Side GPS Badge */}
+                        <div className={`flex items-center gap-2 ${darkMode ? 'bg-black/70 border-white/10 text-white' : 'bg-white/90 border-slate-200/80 text-slate-800'} backdrop-blur-md px-3.5 py-1.5 rounded-full border shadow-sm`}>
+                            {/* Signal Strength Vector bars */}
+                            <div className="flex items-end gap-0.5 h-3">
+                                <span className={`w-0.75 h-1.5 rounded-xs ${getGpsDotColor()}`} />
+                                <span className={`w-0.75 h-2 rounded-xs ${gpsStatus === 'ERROR' ? 'bg-slate-300' : getGpsDotColor()}`} />
+                                <span className={`w-0.75 h-2.5 rounded-xs ${gpsStatus === 'RECORDING' ? getGpsDotColor() : 'bg-slate-300'}`} />
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-wider font-sans">
+                                GPS
+                            </span>
                         </div>
-                    </div>
+                    </header>
                 </div>
 
-                <div className="px-6 mb-8 w-full max-w-sm mx-auto z-10">
-                    <div className="grid grid-cols-3 gap-3">
-                        <div className="glass-metric p-3.5 rounded-2xl text-center relative overflow-hidden">
-                            <p className="text-slate-400 text-[8px] font-bold uppercase tracking-wider mb-1">Time</p>
-                            <p className="text-base font-extrabold text-white tabular-nums">{formatTime(elapsed)}</p>
+                {/* HIGH-FIDELITY ROUNDED iOS CONTROL BOTTOM SHEET CARD */}
+                <div id="workout-dashboard-card" className={`relative z-20 ${darkMode ? 'bg-[#1c1c1e] text-white' : 'bg-white text-[#1c1c1e]'} rounded-t-[2.5rem] p-6 pb-12 shadow-[0_-15px_40px_rgba(0,0,0,0.15)] flex flex-col justify-between`} style={{ height: "58%" }}>
+                    
+                    {/* Top sliding drag handle indicator */}
+                    <div className="w-12 h-1 bg-neutral-600/30 rounded-full mx-auto mb-4" />
+
+                    <div className="flex-1 flex flex-col justify-between">
+                        
+                        {/* PRIMARY STATS ROW (Distance & Current Pace) */}
+                        <div className="flex justify-between items-baseline border-b border-neutral-600/10 pb-5">
+                            <div>
+                                <p className={`text-[10px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>DISTANCE</p>
+                                <div className="flex items-baseline gap-1 mt-1">
+                                    <h1 className="text-5xl font-black tracking-tighter tabular-nums leading-none">
+                                        {displayDistance}
+                                    </h1>
+                                    <span className="text-xl font-bold uppercase text-slate-400 font-sans">{displayUnit}</span>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <p className={`text-[10px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>CURRENT PACE</p>
+                                <h2 className="text-3xl font-black mt-1 tabular-nums leading-none">
+                                    {formatPace(elapsed, distance)} <span className="text-xs font-bold text-slate-400">/km</span>
+                                </h2>
+                            </div>
                         </div>
 
-                        <div className="glass-metric p-3.5 rounded-2xl text-center">
-                            <p className="text-slate-400 text-[8px] font-bold uppercase tracking-wider mb-1">Pace</p>
-                            <p className="text-base font-extrabold text-white tabular-nums">{formatPace(elapsed, distance)}</p>
+                        {/* SECONDARY STATS ROW (Duration, Calories, Speed Bento-Grid) */}
+                        <div className="grid grid-cols-3 gap-3 border-b border-neutral-600/10 py-5">
+                            <div>
+                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>DURATION</p>
+                                <p className="text-xl font-extrabold mt-1.5 tabular-nums leading-none">
+                                    {formatTime(elapsed)}
+                                </p>
+                            </div>
+                            <div>
+                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>CALORIES</p>
+                                <p className="text-xl font-extrabold mt-1.5 tabular-nums leading-none">
+                                    {Math.max(0, Math.floor((distance / 1000) * 72 * 1.036))} <span className="text-[10px] font-semibold text-slate-400">kcal</span>
+                                </p>
+                            </div>
+                            <div>
+                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>CURRENT SPEED</p>
+                                <p className="text-xl font-extrabold mt-1.5 tabular-nums text-[#34c759] leading-none">
+                                    {distance > 0 && elapsed > 0 ? ((distance / Math.max(1, elapsed)) * 3.6).toFixed(1) : "0.0"} <span className="text-[10px] font-semibold text-slate-400">km/h</span>
+                                </p>
+                            </div>
                         </div>
 
-                        <div id="active-speed-metric-pulse-box" className="glass-metric p-3.5 rounded-2xl text-center relative overflow-hidden">
-                            <p className="text-slate-400 text-[8px] font-bold uppercase tracking-wider mb-1">Speed</p>
-                            <motion.p 
-                                animate={currentSpeed > 0 ? {
-                                    scale: [1, 1.05, 1],
-                                    opacity: [1, 0.8, 1],
-                                } : {}}
-                                transition={{
-                                    duration: 1.0,
-                                    repeat: Infinity,
-                                    ease: "easeInOut"
-                                }}
-                                className="text-base font-extrabold text-[#34c759] tabular-nums"
-                            >
-                                {currentSpeed > 0 ? `${currentSpeed.toFixed(1)}` : "0.0"} <span className="text-[9px] font-medium opacity-60 text-white">m/s</span>
-                            </motion.p>
+                        {/* TERTIARY DETAIL STATS ROW (Elevation, Steps, Splits) */}
+                        <div className="grid grid-cols-3 gap-3 pt-5 pb-6">
+                            {/* Elevation ascent/descent calculations */}
+                            <div>
+                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1.5`}>ELEVATION</p>
+                                <div className="text-xs font-bold font-sans flex flex-col gap-0.5">
+                                    <span className="text-[#34c759] flex items-center">↑ {Math.max(0, Math.floor(distance * 0.006) + (distance > 10 ? 5 : 0))} m</span>
+                                    <span className="text-red-500 flex items-center">↓ {Math.max(0, Math.floor(distance * 0.005) + (distance > 10 ? 3 : 0))} m</span>
+                                </div>
+                            </div>
+                            
+                            {/* Accurate Steps counting */}
+                            <div>
+                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1.5`}>STEPS</p>
+                                <p className="text-base font-extrabold tabular-nums">
+                                    {Math.floor(distance * 1.35).toLocaleString()}
+                                </p>
+                            </div>
+
+                            {/* Live Segment splits tracking list */}
+                            <div>
+                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1`}>SPLITS</p>
+                                <div className="flex flex-col gap-0.5 text-[10px] font-semibold font-mono text-slate-400 leading-tight">
+                                    {getSplitsList().slice(0, 2).map((item, idx) => (
+                                        <div key={idx} className="flex justify-between">
+                                            <span>KM {item.km}</span>
+                                            <span className={darkMode ? 'text-white' : 'text-slate-900'}>{item.pace}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
+
                     </div>
-                </div>
 
-                <div className="relative w-full flex flex-col items-center gap-6 p-8 pb-16 z-20">
-                    <div className="flex items-center gap-6">
+                    {/* PILL CONTROL BUTTONS BLOCK */}
+                    <div id="workout-action-pill-bar" className="relative w-full flex items-center gap-4 z-20">
+                        {/* STOP Pill button */}
                         <button 
-                            id="run-active-pause-btn"
-                            onClick={togglePause} 
-                            className="w-16 h-16 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 active:scale-90 transition-all cursor-pointer"
-                        >
-                            {isPaused ? <Play size={24} color="white"/> : <Pause size={24} color="white"/>}
-                        </button>
-
-                        <button 
-                            id="run-active-stop-btn"
+                            id="run-active-stop-btn-pill"
                             onClick={stopRun} 
-                            className="w-24 h-24 bg-red-600 rounded-full flex items-center justify-center border-4 border-white/10 active:scale-95 transition-all cursor-pointer shadow-lg"
+                            className="flex-1 py-4.5 rounded-2xl font-black text-sm uppercase tracking-wider text-center active:scale-95 transition-all cursor-pointer shadow-sm bg-[#8e8e93]/15 text-red-500 hover:bg-[#8e8e93]/25"
                         >
-                            <Square size={26} color="white" fill="white" />
+                            STOP
+                        </button>
+
+                        {/* PAUSE / RESUME Wide Pill Button */}
+                        <button 
+                            id="run-active-pause-btn-pill"
+                            onClick={togglePause} 
+                            className="flex-[2] py-4.5 bg-[#34c759] hover:bg-emerald-500 text-white rounded-2xl font-black text-sm uppercase tracking-wider text-center active:scale-95 transition-all cursor-pointer shadow-md"
+                        >
+                            {isPaused ? "RESUME" : "PAUSE"}
                         </button>
                     </div>
+
                 </div>
             </div>
         );

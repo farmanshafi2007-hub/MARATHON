@@ -1,7 +1,12 @@
+/// <reference types="vite/client" />
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
+
+// Safely attempt to load firebase config using Vite's glob import to prevent build crashes on GitHub
+const configFiles = import.meta.glob('../firebase-applet-config.json', { eager: true });
+const configKey = Object.keys(configFiles)[0];
+const firebaseConfig = configKey ? (configFiles[configKey] as any).default : null;
 
 console.log("[Firebase Init] Starting audit of Firebase configuration...");
 console.log("[Firebase Init] Project ID:", firebaseConfig?.projectId);
