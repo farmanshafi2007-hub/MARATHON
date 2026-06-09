@@ -37,7 +37,6 @@ import {
   Sun,
   Moon
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { 
   signInWithPopup, 
@@ -1015,13 +1014,11 @@ function App() {
     // Splash view matching startup sequence
     const Splash = () => (
         <div id="splash-view" className="absolute inset-0 bg-[#000000] flex flex-col items-center justify-center z-[201] w-full h-full">
-            <motion.div 
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="w-20 h-20 bg-[#34c759] rounded-[1.8rem] flex items-center justify-center shadow-xl"
+            <div 
+                className="w-20 h-20 bg-[#34c759] rounded-[1.8rem] flex items-center justify-center shadow-xl animate-pulse"
             >
                 <Activity size={40} color="white" />
-            </motion.div>
+            </div>
             <h2 className="text-white mt-4 font-bold text-sm tracking-[0.15em] uppercase">R U N O</h2>
         </div>
     );
@@ -1133,13 +1130,9 @@ function App() {
                 {/* Carousel Card */}
                 <div className="flex flex-col items-center max-w-sm w-full my-auto">
                     <>
-                        <motion.div
+                        <div
                             key={step}
-                            initial={{ opacity: 0, x: 40 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -40 }}
-                            transition={{ duration: 0.25 }}
-                            className="flex flex-col items-center"
+                            className="flex flex-col items-center transition-all duration-300"
                         >
                             <div className="w-20 h-20 bg-neutral-900 rounded-3xl flex items-center justify-center mb-6 border border-white/5 shadow-inner">
                                 {slides[step].icon}
@@ -1148,7 +1141,7 @@ function App() {
                             <p className="text-[#8e8e93] text-sm max-w-xs font-semibold leading-relaxed px-2">
                                 {slides[step].description}
                             </p>
-                        </motion.div>
+                        </div>
                     </>
 
                     {/* Step Dots indicator */}
@@ -2176,14 +2169,13 @@ function App() {
                                 {isAnalysisLoading ? <Loader2 className="animate-spin text-white" size={14}/> : <><Activity size={14} color="white"/> Diagnose Performance</>}
                             </button>
 
-                            <motion.button 
+                            <button 
                                 id="stop-run-share-btn"
                                 onClick={generateShareCard}
-                                whileTap={{ scale: 0.90 }}
-                                className="py-4 bg-[#34c759] text-white rounded-2xl font-bold text-xs uppercase tracking-wider flex justify-center items-center gap-1.5 transition-all"
+                                className="py-4 bg-[#34c759] text-white rounded-2xl font-bold text-xs uppercase tracking-wider flex justify-center items-center gap-1.5 transition-all active:scale-95"
                             >
                                 <Upload size={14} className="rotate-180 text-white" /> Share Card
-                            </motion.button>
+                            </button>
                         </div>
 
                         {aiAnalysis && (
