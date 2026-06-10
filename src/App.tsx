@@ -444,29 +444,32 @@ function App() {
     // Auth Listener
     useEffect(() => {
       if (!auth) {
-        const guestUser = {
-          uid: 'guest_athlete_1',
-          displayName: 'Guest Athlete',
-          email: 'guest@sports.org',
-          photoURL: null,
-          emailVerified: true,
-          isAnonymous: true,
-          providerData: []
-        } as any;
-        setUser(guestUser);
         setIsAuthReady(true);
         return;
       }
 
-      const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-        setUser(currentUser);
+      const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
         setIsAuthReady(true);
         if (currentUser) {
+          setUser(currentUser);
           if (currentUser.email === "farmanshafi2007@gmail.com") {
             setIsDeveloper(true);
           }
+          
+          // Initialize user in Firestore (this ensures new logins persist data right away)
+          if (db) {
+             const userDocRef = doc(db, 'users', currentUser.uid);
+             // We do a safe merge rather than overwrite
+             await setDoc(userDocRef, {
+                 name: currentUser.displayName || "Athlete",
+                 email: currentUser.email,
+                 profilePic: currentUser.photoURL || null,
+                 lastLogin: serverTimestamp()
+             }, { merge: true }).catch(e => console.warn("Could not save initial user profile", e));
+          }
         } else {
           // Robust real-time purge logic on logout
+          setUser(null);
           setIsDeveloper(false);
           setUserData(null);
           setRuns([]);
@@ -487,16 +490,6 @@ function App() {
         }
       }, (error) => {
         console.error("Auth listen error:", error);
-        const guestUser = {
-          uid: 'guest_athlete_1',
-          displayName: 'Guest Athlete',
-          email: 'guest@sports.org',
-          photoURL: null,
-          emailVerified: true,
-          isAnonymous: true,
-          providerData: []
-        } as any;
-        setUser(guestUser);
         setIsAuthReady(true);
       });
       return () => unsubscribe();
@@ -1036,8 +1029,8 @@ function App() {
             console.log(`[Auth] Initiating Google Auth: method=${useRedirect ? "redirect" : "popup"}`);
             try {
               if (!auth) {
-                 // Silently fallback without error
-                 handleGuestLogin();
+                 setAuthError("Authentication services are currently offline. Please check firebase configuration.");
+                 setIsSigningIn(false);
                  return;
               }
               const provider = new GoogleAuthProvider();
@@ -1050,36 +1043,24 @@ function App() {
               }
             } catch (err: any) {
               console.error("[Auth] Google sign-in operation failed:", err);
-              // Instead of showing error, either show redirect option or silently fallback
+              
               if (err.code === "auth/popup-blocked" || err.code === "auth/popup-closed-by-user") {
                   setAuthError("Popup blocked or closed. Please try again or use redirect.");
                   setShowRedirectOption(true);
-                  setIsSigningIn(false);
-                  return;
+                  // Automatically try redirect if popup blocked
+                  if (err.code === "auth/popup-blocked" && !useRedirect) {
+                      console.log("Automatically falling back to redirect...");
+                      await signInWithRedirect(auth, new GoogleAuthProvider());
+                  }
+              } else if (err.code === "auth/unauthorized-domain") {
+                  setAuthError(`Domain unauthorized. Open in new tab or add "${window.location.hostname}" to Firebase Auth authorized domains.`);
+              } else if (err.code === "auth/cancelled-popup-request") {
+                  setAuthError("A sign-in request is already in progress.");
+              } else {
+                  setAuthError(err.message || "Failed to authenticate with Google. Please try again.");
               }
-              
-              // If domain unauthorized or other error, fallback to guest silently without showing error
-              console.warn("Auth failed, falling back to guest mode seamlessly.");
-              handleGuestLogin();
+              setIsSigningIn(false);
             }
-        };
-
-        const handleGuestLogin = () => {
-            setIsSigningIn(true);
-            setTimeout(() => {
-                const guestUser = {
-                    uid: 'guest_athlete_1',
-                    displayName: 'Guest Athlete',
-                    email: 'guest@sports.org',
-                    photoURL: null,
-                    emailVerified: true,
-                    isAnonymous: true,
-                    providerData: []
-                } as any;
-                setUser(guestUser);
-                setIsAuthReady(true);
-                setIsSigningIn(false);
-            }, 600);
         };
 
         const slides = [
@@ -1205,6 +1186,15 @@ function App() {
 
     // APPLE TAB 1: HOME DASHBOARD
     const Home = () => {
+        const [waterIntake, setWaterIntake] = useState(() => {
+            const saved = localStorage.getItem('daily_water_intake');
+            return saved ? parseInt(saved, 10) : 0;
+        });
+
+        useEffect(() => {
+            localStorage.setItem('daily_water_intake', waterIntake.toString());
+        }, [waterIntake]);
+
         const totalDistanceVal = runs.reduce((sum, run) => sum + (run.distance || 0), 0) / 1000;
         const totalStreakVal = userData?.streak || 0;
         const totalRunsCount = runs.length;
@@ -1254,14 +1244,14 @@ function App() {
         const maxActivity = Math.max(...weeklyActivity, 1); // Avoid division-by-zero
         
         return (
-            <div id="home-view" className="absolute inset-0 px-5 pt-6 overflow-y-auto custom-scroll w-full h-full">
+            <div id="home-view" className="absolute inset-0 px-5 pt-6 overflow-y-auto custom-scroll w-full h-full pb-20">
                 <IndianClock />
                 <header className="flex justify-between items-center mb-6 mt-4">
                     <div>
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold tracking-widest text-[#34c759] uppercase bg-green-500/10 px-2.5 py-0.5 rounded-full">LIVE FEED</span>
                         </div>
-                        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 mt-1">Hello, Athlete 👋</h1>
+                        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 mt-1">Hello, {userData?.name?.split(' ')[0] || "Athlete"} 👋</h1>
                     </div>
                     <div className="flex items-center gap-3">
                         <div className="bg-white p-2.5 rounded-full shadow-sm border border-slate-100 relative">
@@ -1273,6 +1263,43 @@ function App() {
                         </div>
                     </div>
                 </header>
+
+                {/* Daily Water Intake Tracker */}
+                <div className="mb-6 bg-white rounded-3xl p-5 border border-slate-100 flex items-center shadow-sm">
+                    <div className="flex-1">
+                        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-1">HYDRATION</h3>
+                        <p className="text-xs font-semibold text-slate-400 mb-4">Goal: 8 Glasses</p>
+                        <div className="flex gap-2 isolate">
+                           <button 
+                               onClick={() => setWaterIntake(Math.max(0, waterIntake - 1))}
+                               className="w-10 h-10 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center font-black active:scale-95 transition-all text-xl"
+                           >-</button>
+                           <button 
+                               onClick={() => setWaterIntake(Math.max(0, waterIntake + 1))}
+                               className="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center font-black active:scale-95 transition-all text-xl shadow-md shadow-blue-500/20"
+                           >+</button>
+                        </div>
+                    </div>
+                    <div className="ml-4 relative w-20 h-20 shrink-0">
+                        <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                            <circle cx="50" cy="50" r="45" fill="none" stroke="#eff6ff" strokeWidth="10" />
+                            <circle 
+                                cx="50" cy="50" r="45" 
+                                fill="none" 
+                                stroke="#3b82f6" 
+                                strokeWidth="10" 
+                                strokeLinecap="round" 
+                                strokeDasharray="283" 
+                                strokeDashoffset={283 - (283 * Math.min(waterIntake / 8, 1))}
+                                className="transition-all duration-700 ease-out" 
+                            />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className="text-xl font-black text-slate-800 leading-none">{waterIntake}</span>
+                            <span className="text-[9px] font-bold text-blue-500 uppercase">of 8</span>
+                        </div>
+                    </div>
+                </div>
 
                 {/* AI Briefing Segment */}
                 <div className="mb-6 p-5 bg-white rounded-3xl border border-slate-100 flex items-start gap-4">
