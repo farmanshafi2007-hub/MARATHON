@@ -2248,12 +2248,13 @@ function App() {
             <div id="active-workout-view" className={`absolute inset-0 z-[61] ${darkMode ? 'bg-black text-white' : 'bg-slate-50 text-[#1c1c1e]'} flex flex-col justify-between overflow-hidden overscroll-none w-full h-full transition-all duration-300`}>
                 
                 {/* HIGH-FIDELITY VECTOR STREET MAP BACKDROP */}
-                <div id="gps-vector-map-backdrop" className="absolute inset-x-0 top-0 h-[45%] w-full overflow-hidden relative select-none">
+                <div id="gps-vector-map-backdrop" className="opacity-fade-in absolute inset-x-0 top-0 h-[45%] w-full overflow-hidden relative select-none">
                     {API_KEY ? (
                         <Map
                             defaultZoom={15}
                             center={activeRouteForMap[0] || { lat: 12.9716, lng: 77.5946 }}
                             disableDefaultUI={true}
+                            colorScheme={darkMode ? "DARK" : "LIGHT"}
                             onDragStart={() => setIsFollowCamera(false)}
                             internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
                             style={{ width: '100%', height: '100%' }}

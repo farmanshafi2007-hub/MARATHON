@@ -238,6 +238,16 @@ body, html {
     transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
+@keyframes opacity-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* CHROME/SAFARI POLYFILL FOR MAP BACKGROUND */
+.opacity-fade-in {
+    animation: opacity-fade 1.2s ease-in-out forwards;
+}
+
 /* ==========================================================================
    TRUE DARK MODE OVERRIDES (iOS Style)
    ========================================================================== */
