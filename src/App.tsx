@@ -668,20 +668,7 @@ function App() {
         rAFRef.current = requestAnimationFrame(updateUI);
     }, []);
 
-    const generateSimulatedRoute = () => {
-        const coords = [];
-        const centerLat = 12.9716; // Standard center (e.g. Bangalore center coordinates)
-        const centerLng = 77.5946;
-        for (let i = 0; i <= 35; i++) {
-            const angle = (i / 35) * Math.PI * 4;
-            const r = 0.002 * (1 + 0.4 * Math.sin(angle * 1.5));
-            coords.push({
-                lat: centerLat + r * Math.sin(angle),
-                lng: centerLng + r * Math.cos(angle)
-            });
-        }
-        return coords;
-    };
+    // Simulated route deleted for authenticity
 
     const startRun = async () => {
         triggerVibration(100); // 100ms vibration on start-active
@@ -768,9 +755,9 @@ function App() {
         const paceString = formatPace(finalElapsed, finalDistance);
 
         // Standardize coordinates path
-        const finalCoords = runDataRef.current.coordinates.length > 1 
+        const finalCoords = runDataRef.current.coordinates.length > 0 
             ? runDataRef.current.coordinates 
-            : generateSimulatedRoute();
+            : [];
 
         if (finalDistance > 5 && user) { 
             const runName = prompt("Excellent Session! Classify your run:", `Run ${new Date().toLocaleDateString()}`);
@@ -1063,7 +1050,7 @@ function App() {
                       await signInWithRedirect(auth, new GoogleAuthProvider());
                   }
               } else if (err.code === "auth/unauthorized-domain") {
-                  setAuthError(`Domain unauthorized. Open in new tab or add "${window.location.hostname}" to Firebase Auth authorized domains.`);
+                  setAuthError(`Action Required: Please add "${window.location.hostname}" to your Firebase Console (Authentication > Settings > Authorized domains) to fix this Google login error.`);
               } else if (err.code === "auth/network-request-failed") {
                   setAuthError("Network request failed. This may be due to an ad-blocker or strict anti-tracking settings blocking the Google Auth popup. Please try using Redirect Login, logging as Guest, or disabling tracking protection.");
                   setShowRedirectOption(true);
@@ -2000,7 +1987,7 @@ function App() {
         // Pre-calculate running tracking data for high-fidelity active map render
         const activeRouteForMap = runDataRef.current?.coordinates && runDataRef.current.coordinates.length > 0
             ? runDataRef.current.coordinates
-            : generateSimulatedRoute();
+            : [{ lat: 12.9716, lng: 77.5946 }]; // Default fallback so math doesn't crash
 
         const mapLats = activeRouteForMap.map(c => c.lat);
         const mapLngs = activeRouteForMap.map(c => c.lng);
