@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, Component } from 'react';
-import { APIProvider, Map, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
+import { APIProvider, Map, AdvancedMarker, Pin, useMap } from '@vis.gl/react-google-maps';
 import { MapPolyline } from './MapPolyline';
 import { 
   Activity, 
@@ -1990,6 +1990,8 @@ function App() {
 
     // ACTIVE APP VIEW (Running Counter screen)
     const Run = () => { 
+        const map = useMap("DEMO_MAP_ID");
+        const [isFollowCamera, setIsFollowCamera] = useState(true);
         const missionGoalMeters = 2500; 
         const displayDistance = distance < 1000 ? Math.floor(distance) : (distance / 1000).toFixed(2);
         const displayUnit = distance < 1000 ? "m" : "km";
@@ -2036,13 +2038,27 @@ function App() {
         const endY = 100 - (((endPt.lat - minLatPVal) / rangeLatVal) * 100);
 
         // Interpolate current position along activeRouteForMap relative to progressPercent
-        const runnerIndex = Math.min(
+        const exactIndex = Math.min(
             activeRouteForMap.length - 1,
-            Math.max(0, Math.floor((progressPercent / 100) * (activeRouteForMap.length - 1)))
+            Math.max(0, (progressPercent / 100) * (activeRouteForMap.length - 1))
         );
-        const runnerPt = activeRouteForMap[runnerIndex] || startPt;
+        const floorIndex = Math.floor(exactIndex);
+        const ceilIndex = Math.min(activeRouteForMap.length - 1, floorIndex + 1);
+        const fraction = exactIndex - floorIndex;
+        const pt1 = activeRouteForMap[floorIndex] || startPt;
+        const pt2 = activeRouteForMap[ceilIndex] || startPt;
+        const runnerPt = {
+            lat: pt1.lat + (pt2.lat - pt1.lat) * fraction,
+            lng: pt1.lng + (pt2.lng - pt1.lng) * fraction
+        };
         const runnerX = ((runnerPt.lng - minLngPVal) / rangeLngVal) * 100;
         const runnerY = 100 - (((runnerPt.lat - minLatPVal) / rangeLatVal) * 100);
+
+        useEffect(() => {
+            if (map && isFollowCamera && runnerPt) {
+                map.panTo(runnerPt);
+            }
+        }, [map, runnerPt.lat, runnerPt.lng, isFollowCamera]);
 
         // Splits live calculation list
         const getSplitsList = () => {
@@ -2244,6 +2260,7 @@ function App() {
                         center={activeRouteForMap[0] || { lat: 12.9716, lng: 77.5946 }}
                         disableDefaultUI={true}
                         mapId="DEMO_MAP_ID"
+                        onDragStart={() => setIsFollowCamera(false)}
                         internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
                         style={{ width: '100%', height: '100%' }}
                     >
@@ -2265,7 +2282,7 @@ function App() {
 
                         {/* ACTIVE SPORTING RUNNER AVATAR INDICATOR */}
                         {activeRouteForMap.length > 0 && (
-                            <AdvancedMarker position={activeRouteForMap[runnerIndex] || activeRouteForMap[0]} zIndex={999}>
+                            <AdvancedMarker position={runnerPt} zIndex={999}>
                                 <div className="relative flex items-center justify-center w-8 h-8">
                                     {/* Ambient breathing ripple */}
                                     <div className="absolute inset-0 rounded-full animate-ping" style={{ backgroundColor: darkMode ? "rgba(10,132,255,0.4)" : "rgba(0,81,255,0.4)" }}></div>
@@ -2278,9 +2295,9 @@ function App() {
                     </Map>
 
                     {/* TOP STATUS OVERLAYS ON MAP */}
-                    <header className="absolute inset-x-0 top-0 flex justify-between items-center z-10 p-5 pt-12">
+                    <header className="absolute inset-x-0 top-0 flex justify-between items-center z-10 p-5 pt-12 pointer-events-none">
                         {/* iOS Left Side GPS Badge */}
-                        <div className={`flex items-center gap-2 ${darkMode ? 'bg-black/70 border-white/10 text-white' : 'bg-white/90 border-slate-200/80 text-slate-800'} backdrop-blur-md px-3.5 py-1.5 rounded-full border shadow-sm`}>
+                        <div className={`flex items-center gap-2 ${darkMode ? 'bg-black/70 border-white/10 text-white' : 'bg-white/90 border-slate-200/80 text-slate-800'} backdrop-blur-md px-3.5 py-1.5 rounded-full border shadow-sm pointer-events-auto`}>
                             {/* Signal Strength Vector bars */}
                             <div className="flex items-end gap-0.5 h-3">
                                 <span className={`w-0.75 h-1.5 rounded-xs ${getGpsDotColor()}`} />
@@ -2291,6 +2308,18 @@ function App() {
                                 GPS
                             </span>
                         </div>
+                        
+                        <button 
+                            onClick={() => setIsFollowCamera(!isFollowCamera)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-md border shadow-sm transition-colors pointer-events-auto active:scale-95 ${
+                                isFollowCamera ? (darkMode ? 'bg-[#0a84ff]/90 border-[#0a84ff] text-white' : 'bg-[#0051ff] border-[#0051ff] text-white') : (darkMode ? 'bg-black/70 border-white/10 text-white' : 'bg-white/90 border-slate-200/80 text-slate-800')
+                            }`}
+                        >
+                            <Navigation size={12} className={isFollowCamera ? "" : "text-slate-400"} />
+                            <span className="text-[10px] font-black uppercase tracking-wider font-sans">
+                                FOLLOW
+                            </span>
+                        </button>
                     </header>
                 </div>
 
