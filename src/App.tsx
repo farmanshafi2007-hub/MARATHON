@@ -4,6 +4,8 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, Component } from 'react';
+import { APIProvider, Map, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
+import { MapPolyline } from './MapPolyline';
 import { 
   Activity, 
   BarChart2, 
@@ -313,11 +315,19 @@ function safeJsonParse(str: string | null, fallback: any): any {
     }
 }
 
+const API_KEY =
+  process.env.GOOGLE_MAPS_PLATFORM_KEY ||
+  (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY ||
+  (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY ||
+  '';
+
 // --- APP COMPONENT ---
 export default function AppWrapper() {
   return (
     <ErrorBoundary>
-      <App />
+      <APIProvider apiKey={API_KEY} version="weekly">
+        <App />
+      </APIProvider>
     </ErrorBoundary>
   );
 }
@@ -1054,6 +1064,9 @@ function App() {
                   }
               } else if (err.code === "auth/unauthorized-domain") {
                   setAuthError(`Domain unauthorized. Open in new tab or add "${window.location.hostname}" to Firebase Auth authorized domains.`);
+              } else if (err.code === "auth/network-request-failed") {
+                  setAuthError("Network request failed. This may be due to an ad-blocker or strict anti-tracking settings blocking the Google Auth popup. Please try using Redirect Login, logging as Guest, or disabling tracking protection.");
+                  setShowRedirectOption(true);
               } else if (err.code === "auth/cancelled-popup-request") {
                   setAuthError("A sign-in request is already in progress.");
               } else {
@@ -1061,6 +1074,24 @@ function App() {
               }
               setIsSigningIn(false);
             }
+        };
+
+        const handleGuestLogin = () => {
+            setIsSigningIn(true);
+            setTimeout(() => {
+                const guestUser = {
+                    uid: 'guest_athlete_1',
+                    displayName: 'Guest Athlete',
+                    email: 'guest@sports.org',
+                    photoURL: null,
+                    emailVerified: true,
+                    isAnonymous: true,
+                    providerData: []
+                } as any;
+                setUser(guestUser);
+                setIsAuthReady(true);
+                setIsSigningIn(false);
+            }, 600);
         };
 
         const slides = [
@@ -2208,61 +2239,43 @@ function App() {
                 
                 {/* HIGH-FIDELITY VECTOR STREET MAP BACKDROP */}
                 <div id="gps-vector-map-backdrop" className="absolute inset-x-0 top-0 h-[45%] w-full overflow-hidden relative select-none">
-                    {/* Render elegant curving streets, parks, lawns, and the running route */}
-                    <svg className="absolute inset-0 w-full h-full object-cover" viewBox="0 0 100 100" preserveAspectRatio="none">
-                        {/* Map base backing context */}
-                        <rect width="110" height="110" x="-5" y="-5" fill={darkMode ? "#111115" : "#eef2f5"} />
-                        
-                        {/* Park Grass Areas */}
-                        <path d="M-10,-10 L35,-10 L45,45 L-10,50 Z" fill={darkMode ? "#132719" : "#e1f5fe"} opacity="0.35" />
-                        <path d="M55,60 L110,55 L110,110 L45,110 Z" fill={darkMode ? "#122a1b" : "#e2f8e9"} opacity="0.4" />
-                        <rect x="55" y="10" width="45" height="30" rx="8" fill={darkMode ? "#15242d" : "#e8faf0"} opacity="0.4" />
-
-                        {/* Neighborhood Streets/Road grids */}
-                        <path d="M-10,30 Q30,22 110,18" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
-                        <path d="M-10,72 Q50,78 110,68" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
-                        <path d="M22,-10 L38,110" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
-                        <path d="M82,-10 L72,110" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
-                        <path d="M-10,52 L110,50" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
-                        <path d="M10,85 C25,100 45,95 55,110" stroke={darkMode ? "#24292f" : "#cbd5e1"} strokeWidth="1.2" fill="none" />
-                        
-                        {/* Dynamic Active Training Trail (Vibrant Blue with soft neon glow drop-shadow) */}
+                    <Map
+                        defaultZoom={15}
+                        center={activeRouteForMap[0] || { lat: 12.9716, lng: 77.5946 }}
+                        disableDefaultUI={true}
+                        mapId="DEMO_MAP_ID"
+                        internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+                        style={{ width: '100%', height: '100%' }}
+                    >
                         {pointsList.length > 1 && (
-                            <polyline
-                                fill="none"
-                                stroke={darkMode ? "#0a84ff" : "#0051ff"}
-                                strokeWidth="4.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                points={svgPoints}
-                                style={{ filter: "drop-shadow(0 2px 6px rgba(10,132,255,0.65))" }}
-                            />
+                            <MapPolyline path={activeRouteForMap} strokeColor={darkMode ? "#0a84ff" : "#0051ff"} />
                         )}
 
-                        {/* START PIN MARKER (Silver circle with inner blue node) */}
-                        <circle cx={startX} cy={startY} r="3.5" fill="#f2f2f7" stroke={darkMode ? "#0a84ff" : "#0051ff"} strokeWidth="2" style={{ filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.3))" }} />
-                        <circle cx={startX} cy={startY} r="1.5" fill={darkMode ? "#0a84ff" : "#0051ff"} />
+                        {activeRouteForMap[0] && (
+                            <AdvancedMarker position={activeRouteForMap[0]}>
+                                <Pin background="#f2f2f7" borderColor={darkMode ? "#0a84ff" : "#0051ff"} glyphColor={darkMode ? "#0a84ff" : "#0051ff"} scale={0.8} />
+                            </AdvancedMarker>
+                        )}
 
-                        {/* END PIN MARKER (Classic Red drop-pin locator) */}
-                        <g transform={`translate(${endX - 3}, ${endY - 6.5})`}>
-                            {/* Pin shape drop-shadow */}
-                            <ellipse cx="3" cy="6.5" rx="1.5" ry="0.6" fill="rgba(0,0,0,0.35)" />
-                            {/* SVG vector path pin needle */}
-                            <path d="M3,0 C1.3,0 0,1.3 0,3 C0,5.2 3,7 3,7 C3,7 6,5.2 6,3 C6,1.3 4.7,0 3,0 Z" fill="#ff3b30" />
-                            {/* Inner white light ring */}
-                            <circle cx="3" cy="3" r="1.2" fill="#ffffff" />
-                        </g>
+                        {activeRouteForMap.length > 0 && (
+                            <AdvancedMarker position={activeRouteForMap[activeRouteForMap.length - 1]}>
+                                <Pin background="#ff3b30" borderColor="#ff3b30" glyphColor="#ffffff" scale={0.8} />
+                            </AdvancedMarker>
+                        )}
 
-                        {/* ACTIVE SPORTING RUNNER AVATAR INDICATOR (Sliding circular blueprint) */}
-                        <g transform={`translate(${runnerX - 4.5}, ${runnerY - 4.5})`} className="transition-all duration-300">
-                            {/* Ambient breathing ripple */}
-                            <circle cx="4.5" cy="4.5" r="7.5" fill={darkMode ? "rgba(10,132,255,0.18)" : "rgba(0,81,255,0.12)"} className="animate-ping" style={{ transformOrigin: "4.5px 4.5px" }} />
-                            {/* Outer high contrast stroke */}
-                            <circle cx="4.5" cy="4.5" r="5" fill={darkMode ? "#0a84ff" : "#0051ff"} stroke="#ffffff" strokeWidth="1.5" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))" }} />
-                            {/* Runner custom internal micro silhouette */}
-                            <path d="M4.2,2.5 C4.5,2.5 4.7,2.3 4.7,2.0 C4.7,1.7 4.5,1.5 4.2,1.5 C3.9,1.5 3.7,1.7 3.7,2.0 C3.7,2.3 3.9,2.5 4.2,2.5 Z M5.2,4.8 L4.4,3.2 L4.6,2.7 L5.1,3.0 C5.3,3.1 5.5,3.0 5.6,2.8 C5.7,2.6 5.6,2.4 5.4,2.3 L4.7,1.9 C4.5,1.8 4.3,1.8 4.1,1.9 C3.9,2.0 3.7,2.2 3.6,2.5 L3.2,3.3 C3.1,3.5 3.2,3.8 3.4,3.9 C3.6,4.0 3.8,3.9 3.9,3.7 L4.1,3.2 L4.4,3.6 L3.3,5.1 L3.1,6.0 L3.6,6.1 L3.8,5.3 L4.5,4.4 L5.2,5.2 L5.2,6.1 L5.7,6.1 L5.7,5.0 L5.2,4.8 Z" fill="#ffffff" />
-                        </g>
-                    </svg>
+                        {/* ACTIVE SPORTING RUNNER AVATAR INDICATOR */}
+                        {activeRouteForMap.length > 0 && (
+                            <AdvancedMarker position={activeRouteForMap[runnerIndex] || activeRouteForMap[0]} zIndex={999}>
+                                <div className="relative flex items-center justify-center w-8 h-8">
+                                    {/* Ambient breathing ripple */}
+                                    <div className="absolute inset-0 rounded-full animate-ping" style={{ backgroundColor: darkMode ? "rgba(10,132,255,0.4)" : "rgba(0,81,255,0.4)" }}></div>
+                                    <div className="relative z-10 w-4 h-4 rounded-full border-2 border-white shadow-md flex items-center justify-center" style={{ backgroundColor: darkMode ? "#0a84ff" : "#0051ff" }}>
+                                         <Activity size={8} color="white" />
+                                    </div>
+                                </div>
+                            </AdvancedMarker>
+                        )}
+                    </Map>
 
                     {/* TOP STATUS OVERLAYS ON MAP */}
                     <header className="absolute inset-x-0 top-0 flex justify-between items-center z-10 p-5 pt-12">
