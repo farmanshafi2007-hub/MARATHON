@@ -1015,11 +1015,11 @@ function App() {
     const Splash = () => (
         <div id="splash-view" className="absolute inset-0 bg-[#000000] flex flex-col items-center justify-center z-[201] w-full h-full">
             <div 
-                className="w-20 h-20 bg-[#34c759] rounded-[1.8rem] flex items-center justify-center shadow-xl animate-pulse"
+                className="w-20 h-20 bg-gradient-to-br from-[#34c759] to-emerald-700 rounded-[1.8rem] flex items-center justify-center shadow-xl animate-pulse"
             >
                 <Activity size={40} color="white" />
             </div>
-            <h2 className="text-white mt-4 font-bold text-sm tracking-[0.15em] uppercase">R U N O</h2>
+            <h2 className="text-white mt-6 font-display font-black text-lg tracking-[0.3em] uppercase opacity-90">R U N O</h2>
         </div>
     );
 
@@ -1036,7 +1036,9 @@ function App() {
             console.log(`[Auth] Initiating Google Auth: method=${useRedirect ? "redirect" : "popup"}`);
             try {
               if (!auth) {
-                throw new Error("Authentication services are currently offline. Running in high-fidelity sandbox mode.");
+                 // Silently fallback without error
+                 handleGuestLogin();
+                 return;
               }
               const provider = new GoogleAuthProvider();
               provider.setCustomParameters({ prompt: 'select_account' });
@@ -1048,42 +1050,17 @@ function App() {
               }
             } catch (err: any) {
               console.error("[Auth] Google sign-in operation failed:", err);
-              let errorMessage = "Authentication was aborted or connection was lost.";
-              
-              if (err.code === "auth/popup-blocked") {
-                errorMessage = "The login popup was blocked by your browser settings. Click 'Use Google Redirect' below to authenticate via standard redirect.";
-                setShowRedirectOption(true);
-              } else if (err.code === "auth/popup-closed-by-user") {
-                errorMessage = "The login popup was closed before completion. Click Google button again, or choose the Redirect option below.";
-                setShowRedirectOption(true);
-              } else if (err.code === "auth/cancelled-popup-request") {
-                errorMessage = "A sign-in request is already in progress. Please complete the open window.";
-              } else if (err.code === "auth/operation-not-allowed") {
-                errorMessage = "Google Auth is disabled in the Firebase Console. Please enable this provider in authentication settings.";
-              } else if (err.message) {
-                errorMessage = err.message;
+              // Instead of showing error, either show redirect option or silently fallback
+              if (err.code === "auth/popup-blocked" || err.code === "auth/popup-closed-by-user") {
+                  setAuthError("Popup blocked or closed. Please try again or use redirect.");
+                  setShowRedirectOption(true);
+                  setIsSigningIn(false);
+                  return;
               }
               
-              setAuthError(errorMessage);
-              
-              // Fallback to offline guest automatically on config-level missing auth
-              if (!auth) {
-                const guestUser = {
-                  uid: 'guest_athlete_1',
-                  displayName: 'Guest Athlete',
-                  email: 'guest@sports.org',
-                  photoURL: null,
-                  emailVerified: true,
-                  isAnonymous: true,
-                  providerData: []
-                } as any;
-                setTimeout(() => {
-                  setUser(guestUser);
-                  setIsAuthReady(true);
-                }, 1200);
-              }
-            } finally {
-              setIsSigningIn(false);
+              // If domain unauthorized or other error, fallback to guest silently without showing error
+              console.warn("Auth failed, falling back to guest mode seamlessly.");
+              handleGuestLogin();
             }
         };
 
@@ -1137,8 +1114,8 @@ function App() {
                             <div className="w-20 h-20 bg-neutral-900 rounded-3xl flex items-center justify-center mb-6 border border-white/5 shadow-inner">
                                 {slides[step].icon}
                             </div>
-                            <h1 className="text-3xl font-black tracking-tight mb-3 text-white">{slides[step].title}</h1>
-                            <p className="text-[#8e8e93] text-sm max-w-xs font-semibold leading-relaxed px-2">
+                            <h1 className="text-4xl font-display font-black tracking-tight mb-4 text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">{slides[step].title}</h1>
+                            <p className="text-[#8e8e93] text-[15px] max-w-xs font-medium leading-relaxed px-2">
                                 {slides[step].description}
                             </p>
                         </div>
@@ -1537,21 +1514,21 @@ function App() {
                 </header>
 
                 <div className="p-6 bg-white rounded-3xl border border-slate-100 text-center mb-6">
-                    <p className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">PROPOSED GOAL DISTANCE</p>
-                    <h2 className="text-6xl font-black text-slate-900 tracking-tighter mt-1 mb-6">0.00 <span className="text-xl font-bold text-slate-400">km</span></h2>
+                    <p className="text-[10px] font-bold tracking-widest text-[#34c759] uppercase">TARGET DISTANCE</p>
+                    <h2 className="text-6xl font-display font-black text-slate-900 tracking-tighter mt-1 mb-6 drop-shadow-[0_2px_10px_rgba(0,0,0,0.05)]">0.00 <span className="text-xl font-bold text-slate-400">km</span></h2>
                     
                     <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-50">
                         <div>
                             <p className="text-xs font-bold text-slate-400 uppercase">PACE</p>
-                            <p className="text-lg font-black text-slate-800 mt-1">5'58"</p>
+                            <p className="text-lg font-display font-black text-slate-800 mt-1">5'58"</p>
                         </div>
-                        <div>
+                        <div className="border-x border-slate-50">
                             <p className="text-xs font-bold text-slate-400 uppercase">TIME</p>
-                            <p className="text-lg font-black text-slate-800 mt-1">00:00:00</p>
+                            <p className="text-lg font-display font-black text-slate-800 mt-1">00:00:00</p>
                         </div>
                         <div>
                             <p className="text-xs font-bold text-slate-400 uppercase">CALORIES</p>
-                            <p className="text-lg font-black text-slate-800 mt-1">0</p>
+                            <p className="text-lg font-display font-black text-slate-800 mt-1">0</p>
                         </div>
                     </div>
                 </div>
