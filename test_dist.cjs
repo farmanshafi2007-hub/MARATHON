@@ -14,6 +14,9 @@ const handler = require('serve-handler');
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     const page = await browser.newPage();
+    page.on('response', response => {
+        if (!response.ok()) console.log('BROWSER RESPONSE ERROR:', response.status(), response.url());
+    });
     page.on('console', msg => console.log('BROWSER LOG:', msg.type(), msg.text()));
     page.on('pageerror', err => console.log('BROWSER ERROR:', err.message));
     
@@ -21,6 +24,8 @@ const handler = require('serve-handler');
     await page.goto('http://localhost:3002');
     
     setTimeout(async () => {
+        const rootHtml = await page.evaluate(() => document.getElementById('root')?.innerHTML);
+        console.log("ROOT HTML (first 500 chars):", rootHtml?.substring(0, 500));
         await browser.close();
         server.close();
         process.exit(0);
