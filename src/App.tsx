@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, Component } from 'react';
-import { APIProvider, Map, AdvancedMarker, Pin, useMap } from '@vis.gl/react-google-maps';
+import { APIProvider, Map, Marker, useMap } from '@vis.gl/react-google-maps';
 import { MapPolyline } from './MapPolyline';
 import { 
   Activity, 
@@ -325,9 +325,13 @@ const API_KEY =
 export default function AppWrapper() {
   return (
     <ErrorBoundary>
-      <APIProvider apiKey={API_KEY} version="weekly">
+      {API_KEY ? (
+        <APIProvider apiKey={API_KEY} version="weekly">
+          <App />
+        </APIProvider>
+      ) : (
         <App />
-      </APIProvider>
+      )}
     </ErrorBoundary>
   );
 }
@@ -1976,8 +1980,17 @@ function App() {
     };
 
     // ACTIVE APP VIEW (Running Counter screen)
+    const MapPanner = ({ isFollowCamera, runnerPt }: { isFollowCamera: boolean, runnerPt: { lat: number, lng: number }}) => {
+        const map = useMap();
+        useEffect(() => {
+            if (map && isFollowCamera && runnerPt) {
+                map.panTo(runnerPt);
+            }
+        }, [map, runnerPt.lat, runnerPt.lng, isFollowCamera]);
+        return null;
+    };
+
     const Run = () => { 
-        const map = useMap("DEMO_MAP_ID");
         const [isFollowCamera, setIsFollowCamera] = useState(true);
         const missionGoalMeters = 2500; 
         const displayDistance = distance < 1000 ? Math.floor(distance) : (distance / 1000).toFixed(2);
@@ -2040,12 +2053,6 @@ function App() {
         };
         const runnerX = ((runnerPt.lng - minLngPVal) / rangeLngVal) * 100;
         const runnerY = 100 - (((runnerPt.lat - minLatPVal) / rangeLatVal) * 100);
-
-        useEffect(() => {
-            if (map && isFollowCamera && runnerPt) {
-                map.panTo(runnerPt);
-            }
-        }, [map, runnerPt.lat, runnerPt.lng, isFollowCamera]);
 
         // Splits live calculation list
         const getSplitsList = () => {
@@ -2242,44 +2249,76 @@ function App() {
                 
                 {/* HIGH-FIDELITY VECTOR STREET MAP BACKDROP */}
                 <div id="gps-vector-map-backdrop" className="absolute inset-x-0 top-0 h-[45%] w-full overflow-hidden relative select-none">
-                    <Map
-                        defaultZoom={15}
-                        center={activeRouteForMap[0] || { lat: 12.9716, lng: 77.5946 }}
-                        disableDefaultUI={true}
-                        mapId="DEMO_MAP_ID"
-                        onDragStart={() => setIsFollowCamera(false)}
-                        internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
-                        style={{ width: '100%', height: '100%' }}
-                    >
-                        {pointsList.length > 1 && (
-                            <MapPolyline path={activeRouteForMap} strokeColor={darkMode ? "#0a84ff" : "#0051ff"} />
-                        )}
+                    {API_KEY ? (
+                        <Map
+                            defaultZoom={15}
+                            center={activeRouteForMap[0] || { lat: 12.9716, lng: 77.5946 }}
+                            disableDefaultUI={true}
+                            onDragStart={() => setIsFollowCamera(false)}
+                            internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+                            style={{ width: '100%', height: '100%' }}
+                        >
+                            {pointsList.length > 1 && (
+                                <MapPolyline path={activeRouteForMap} strokeColor={darkMode ? "#0a84ff" : "#0051ff"} />
+                            )}
+                            
+                            <MapPanner isFollowCamera={isFollowCamera} runnerPt={runnerPt} />
 
-                        {activeRouteForMap[0] && (
-                            <AdvancedMarker position={activeRouteForMap[0]}>
-                                <Pin background="#f2f2f7" borderColor={darkMode ? "#0a84ff" : "#0051ff"} glyphColor={darkMode ? "#0a84ff" : "#0051ff"} scale={0.8} />
-                            </AdvancedMarker>
-                        )}
+                            {activeRouteForMap[0] && (
+                                <Marker 
+                                    position={activeRouteForMap[0]} 
+                                    icon={{
+                                        path: typeof window !== 'undefined' && window.google ? google.maps.SymbolPath.CIRCLE : 0,
+                                        fillColor: darkMode ? "#f2f2f7" : "#0051ff",
+                                        fillOpacity: 1,
+                                        strokeWeight: 2,
+                                        strokeColor: "white",
+                                        scale: 6
+                                    }} 
+                                />
+                            )}
 
-                        {activeRouteForMap.length > 0 && (
-                            <AdvancedMarker position={activeRouteForMap[activeRouteForMap.length - 1]}>
-                                <Pin background="#ff3b30" borderColor="#ff3b30" glyphColor="#ffffff" scale={0.8} />
-                            </AdvancedMarker>
-                        )}
+                            {activeRouteForMap.length > 0 && (
+                                <Marker 
+                                    position={activeRouteForMap[activeRouteForMap.length - 1]}
+                                    icon={{
+                                        path: typeof window !== 'undefined' && window.google ? google.maps.SymbolPath.CIRCLE : 0,
+                                        fillColor: "#ff3b30",
+                                        fillOpacity: 1,
+                                        strokeWeight: 2,
+                                        strokeColor: "white",
+                                        scale: 6
+                                    }}
+                                />
+                            )}
 
-                        {/* ACTIVE SPORTING RUNNER AVATAR INDICATOR */}
-                        {activeRouteForMap.length > 0 && (
-                            <AdvancedMarker position={runnerPt} zIndex={999}>
-                                <div className="relative flex items-center justify-center w-8 h-8">
-                                    {/* Ambient breathing ripple */}
-                                    <div className="absolute inset-0 rounded-full animate-ping" style={{ backgroundColor: darkMode ? "rgba(10,132,255,0.4)" : "rgba(0,81,255,0.4)" }}></div>
-                                    <div className="relative z-10 w-4 h-4 rounded-full border-2 border-white shadow-md flex items-center justify-center" style={{ backgroundColor: darkMode ? "#0a84ff" : "#0051ff" }}>
-                                         <Activity size={8} color="white" />
-                                    </div>
-                                </div>
-                            </AdvancedMarker>
-                        )}
-                    </Map>
+                            {/* ACTIVE SPORTING RUNNER AVATAR INDICATOR */}
+                            {activeRouteForMap.length > 0 && (
+                                <Marker 
+                                    position={runnerPt} 
+                                    zIndex={999}
+                                    icon={{
+                                        path: typeof window !== 'undefined' && window.google ? google.maps.SymbolPath.CIRCLE : 0,
+                                        fillColor: darkMode ? "#0a84ff" : "#0051ff",
+                                        fillOpacity: 1,
+                                        strokeWeight: 3,
+                                        strokeColor: "white",
+                                        scale: 8
+                                    }}
+                                />
+                            )}
+                        </Map>
+                    ) : (
+                        <div className="w-full h-full">
+                            <MiniMap coordinates={activeRouteForMap} />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none">
+                                <span className="bg-black/80 text-white px-4 py-2 rounded-xl text-xs font-bold text-center border border-white/10 shadow-xl max-w-[80%] leading-relaxed">
+                                    Google Maps API Key Missing.<br/>Please add VITE_GOOGLE_MAPS_PLATFORM_KEY to environment variables to enable precise tracking map.
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
 
                     {/* TOP STATUS OVERLAYS ON MAP */}
                     <header className="absolute inset-x-0 top-0 flex justify-between items-center z-10 p-5 pt-12 pointer-events-none">
