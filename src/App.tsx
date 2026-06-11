@@ -530,6 +530,15 @@ function App({ apiKey }: { apiKey: string }) {
 
     useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 
+    useEffect(() => {
+        return () => {
+            if (rAFRef.current) cancelAnimationFrame(rAFRef.current);
+            if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+            releaseWakeLock();
+        };
+    }, []);
+
+
     // Validate Connection and Handle Redirect Result (Session Restore)
     useEffect(() => {
       async function handleStartup() {
@@ -1262,7 +1271,7 @@ function App({ apiKey }: { apiKey: string }) {
                       await signInWithRedirect(auth, new GoogleAuthProvider());
                   }
               } else if (err.code === "auth/unauthorized-domain") {
-                  setAuthError(`Action Required: Please add BOTH "forgesoftwares.in" AND "${window.location.hostname}" to your Firebase Console (Authentication > Settings > Authorized domains). Note: If you are looking at this in the AI Studio preview window, you must open the app in a New Tab for sign-in to work due to iframe restrictions.`);
+                  setAuthError(`Action Required: Please add "${window.location.hostname}" to your Firebase Console (Authentication > Settings > Authorized domains). If you are in the preview, open the app in a New Tab to sign in.`);
               } else if (err.code === "auth/network-request-failed") {
                   setAuthError("Network request failed. This may be due to an ad-blocker or strict anti-tracking settings blocking the Google Auth popup. Please try using Redirect Login, logging as Guest, or disabling tracking protection.");
                   setShowRedirectOption(true);
@@ -2203,6 +2212,21 @@ function App({ apiKey }: { apiKey: string }) {
     // ACTIVE APP VIEW (Running Counter screen)
 
     const Run = () => {
+
+        const renderColorfulDigits = (text: string | number) => {
+            const str = String(text);
+            const colors = ["text-red-500", "text-orange-500", "text-amber-500", "text-green-500", "text-blue-500", "text-indigo-500", "text-purple-500", "text-pink-500"];
+            let charIndex = 0;
+            return str.split('').map((char, index) => {
+                if (/[0-9]/.test(char)) {
+                    const color = colors[charIndex % colors.length];
+                    charIndex++;
+                    return <span key={index} className={color + " drop-shadow-md font-extrabold"}>{char}</span>;
+                }
+                return <span key={index}>{char}</span>;
+            });
+        };
+
         const missionGoalMeters = 2500; 
         const displayDistance = distance < 1000 ? Math.floor(distance) : (distance / 1000).toFixed(2);
         const displayUnit = distance < 1000 ? "m" : "km";
@@ -2480,7 +2504,7 @@ function App({ apiKey }: { apiKey: string }) {
             <div id="active-workout-view" className={`absolute inset-0 z-[61] ${darkMode ? 'bg-black text-white' : 'bg-slate-50 text-[#1c1c1e]'} flex flex-col justify-between overflow-hidden overscroll-none w-full h-full transition-all duration-300`}>
                 
                 {/* HIGH-FIDELITY VECTOR STREET MAP BACKDROP */}
-                <div id="gps-vector-map-backdrop" className="opacity-fade-in absolute inset-x-0 top-0 h-[45%] w-full overflow-hidden relative select-none">
+                <div id="gps-vector-map-backdrop" className="opacity-fade-in relative w-full h-[40vh] shrink-0 overflow-hidden select-none">
                     {apiKey ? (
                         <Map
                             defaultZoom={15}
@@ -2583,12 +2607,12 @@ function App({ apiKey }: { apiKey: string }) {
                 </div>
 
                 {/* HIGH-FIDELITY ROUNDED iOS CONTROL BOTTOM SHEET CARD */}
-                <div id="workout-dashboard-card" className={`relative z-20 ${darkMode ? 'bg-[#2b2b2c] text-white' : 'bg-[#e0e5ec] text-[#1c1c1e]'} rounded-t-[2.5rem] p-6 pb-12 shadow-[0_-15px_40px_rgba(0,0,0,0.15)] flex flex-col justify-between`} style={{ height: "58%" }}>
+                <div id="workout-dashboard-card" className={`relative z-20 ${darkMode ? 'bg-[#2b2b2c] text-white' : 'bg-[#e0e5ec] text-[#1c1c1e]'} rounded-t-[2.5rem] p-6 pb-12 shadow-[0_-15px_40px_rgba(0,0,0,0.15)] flex flex-col justify-between overflow-hidden`} style={{ flex: "1 1 auto" }}>
                     
                     {/* Top sliding drag handle indicator */}
                     <div className="w-12 h-1 bg-neutral-600/30 rounded-full mx-auto mb-4" />
 
-                    <div className="flex-1 flex flex-col justify-between">
+                    <div className="flex-1 flex flex-col justify-start overflow-y-auto custom-scroll mb-4 shrink pr-1">
                         
                         {/* PRIMARY STATS ROW (Distance & Current Pace) */}
                         <div className={`flex flex-col items-center justify-center border-b border-neutral-600/10 pb-6 mb-4 mt-2 ${isMilestonePulse ? 'milestone-animate' : ''}`}>
@@ -2597,8 +2621,8 @@ function App({ apiKey }: { apiKey: string }) {
                                 {workoutType === 'run' ? 'RUN DISTANCE' : 'WALK DISTANCE'}
                             </p>
                             <div className="flex items-baseline gap-1.5 justify-center">
-                                <h1 className={`text-[5.5rem] font-black tracking-tighter tabular-nums leading-none ${workoutType === 'run' ? (darkMode ? 'text-white' : 'text-slate-900') : 'text-[#007aff]'} skeuo-element-pressed rounded-3xl px-6 py-4`}>
-                                    {displayDistance}
+                                <h1 className={`text-[5.5rem] font-black tracking-tighter tabular-nums leading-none ${workoutType === 'run' ? (darkMode ? 'text-white' : 'text-slate-900') : 'text-[#007aff]'} neumorphic-pressed rounded-3xl px-6 py-4`}>
+                                    {renderColorfulDigits(displayDistance)}
                                 </h1>
                                 <span className={`text-2xl font-bold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'} font-sans block mb-3`}>{displayUnit}</span>
                             </div>
@@ -2608,19 +2632,21 @@ function App({ apiKey }: { apiKey: string }) {
                         <div className="grid grid-cols-2 gap-x-4 gap-y-6 pb-6">
                             <div className={`p-4 rounded-3xl skeuo-element flex flex-col items-center justify-center ${isMilestonePulse ? 'milestone-animate' : ''}`}>
                                 <p className={`text-[10px] font-black ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1`}>PACE</p>
-                                <h2 className={`text-4xl font-black tabular-nums leading-none tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'} skeuo-element-pressed rounded-2xl px-5 py-3 mt-1`}>
+                                <h2 className={`text-4xl font-black tabular-nums leading-none tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'} neumorphic-pressed rounded-2xl px-5 py-3 mt-1`}>
                                     {formatCurrentPace(currentSpeed)} <span className="text-base font-bold text-slate-400">/km</span>
                                 </h2>
                             </div>
                             <div className={`p-4 rounded-3xl skeuo-element flex flex-col items-center justify-center`}>
                                 <p className={`text-[10px] font-black ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1`}>TIME</p>
-                                <p className={`text-4xl font-black tabular-nums leading-none tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'} skeuo-element-pressed rounded-2xl px-5 py-3 mt-1`}>
+                                <p className={`text-4xl font-black tabular-nums leading-none tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'} neumorphic-pressed rounded-2xl px-5 py-3 mt-1`}>
                                     {formatTime(elapsed)}
                                 </p>
                             </div>
                         </div>
 
                         {/* TERTIARY DETAIL STATS ROW (Calories, Speed, Elevation) */}
+                        <div className="mt-auto"></div>
+
                         <div className="grid grid-cols-3 gap-2 pb-6">
                             <div className="text-center rounded-2xl skeuo-element p-2">
                                 <p className={`text-[9px] font-black ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1`}>CALORIES</p>

@@ -30,12 +30,12 @@
     border: 1px solid rgba(255,255,255,0.05);
 }
 
-.skeuo-element-pressed {
+.skeuo-element-pressed, .neumorphic-pressed {
     background-color: #e0e5ec;
     box-shadow: inset 6px 6px 10px 0 rgba(163,177,198, 0.7), inset -6px -6px 10px 0 rgba(255,255,255, 0.8);
     border-radius: 1.5rem;
 }
-.dark .skeuo-element-pressed {
+.dark .skeuo-element-pressed, .dark .neumorphic-pressed {
     background-color: #2b2b2c;
     box-shadow: inset 5px 5px 10px rgba(0,0,0,0.6), inset -5px -5px 10px rgba(255,255,255, 0.05);
 }
