@@ -1,0 +1,319 @@
+2- * @license
+3- * SPDX-License-Identifier: Apache-2.0
+4- */
+5-
+6-import React, { useState, useEffect, useRef, useCallback, Component } from 'react';
+7:import { APIProvider, Map, Marker, useMap } from '@vis.gl/react-google-maps';
+8:import { MapPolyline } from './MapPolyline';
+9-import { 
+10-  Activity, 
+11-  BarChart2, 
+12-  User, 
+13-  Flame, 
+--
+100-      userId: auth?.currentUser?.uid,
+101-      email: auth?.currentUser?.email,
+102-      emailVerified: auth?.currentUser?.emailVerified,
+103-      isAnonymous: auth?.currentUser?.isAnonymous,
+104-      tenantId: auth?.currentUser?.tenantId,
+105:      providerInfo: auth?.currentUser?.providerData.map(provider => ({
+106-        providerId: provider.providerId,
+107-        displayName: provider.displayName,
+108-        email: provider.email,
+109-        photoUrl: provider.photoURL
+110-      })) || []
+--
+397-  const [apiKey, setApiKey] = useState<string | null>(null);
+398-
+399-  useEffect(() => {
+400-    let keyFound = false;
+401-    // Check locally injected first
+402:    const localKey = (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY || (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY;
+403-    if (localKey) {
+404-        setApiKey(localKey);
+405-        keyFound = true;
+406-    }
+407-
+408-    fetch('/api/config')
+409-      .then(res => res.json())
+410-      .then(data => {
+411:          if (!keyFound && data.googleMapsApiKey) {
+412:              setApiKey(data.googleMapsApiKey);
+413-          } else if (!keyFound) {
+414-              setApiKey(''); // To proceed without it
+415-          }
+416-      })
+417-      .catch(() => {
+--
+433-    </ErrorBoundary>
+434-  );
+435-}
+436-
+437-// ACTIVE APP VIEW (Running Counter screen)
+438:    const MapPanner = ({ isFollowCamera, runnerPt }: { isFollowCamera: boolean, runnerPt: { lat: number, lng: number }}) => {
+439:        const map = useMap();
+440-        useEffect(() => {
+441:            if (map && isFollowCamera && runnerPt) {
+442:                map.panTo(runnerPt);
+443-            }
+444:        }, [map, runnerPt.lat, runnerPt.lng, isFollowCamera]);
+445-        return null;
+446-    };
+447-
+448-function App({ apiKey }: { apiKey: string }) {
+449-    // Global State matching Apple-style modular views: 'home', 'plan', 'run_tab', 'progress', 'more'
+--
+718-        });
+719-
+720-        // Listen for User Runs subcollection
+721-        const runsQuery = query(collection(userDocRef, 'runs'), orderBy('timestamp', 'desc'));
+722-        unsubscribeRuns = onSnapshot(runsQuery, (snapshot) => {
+723:          const runsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+724-          setRuns(runsData);
+725-          try {
+726-            localStorage.setItem(`user_runs_${user.uid}`, JSON.stringify(runsData));
+727-          } catch (e) {}
+728-        }, (error) => {
+--
+1355-                        </div>
+1356-                    </>
+1357-
+1358-                    {/* Step Dots indicator */}
+1359-                    <div className="flex gap-2.5 mt-8 justify-center">
+1360:                        {slides.map((_, idx) => (
+1361-                            <button
+1362-                                key={idx}
+1363-                                onClick={() => setStep(idx)}
+1364-                                className={`w-2 h-2 rounded-full transition-all duration-300 ${step === idx ? 'bg-[#34c759] w-5' : 'bg-neutral-800'}`}
+1365-                            />
+--
+1613-                        <span className="text-xs font-semibold text-[#34c759] hover:underline cursor-pointer">Stats Real Only</span>
+1614-                    </div>
+1615-                    
+1616-                    {totalRunsCount > 0 ? (
+1617-                        <div className="flex justify-between items-end h-28 px-2 gap-4">
+1618:                            {weeklyActivity.map((km, i) => (
+1619-                                <div key={i} className="flex-1 flex flex-col items-center gap-2">
+1620-                                    <div className="w-full bg-slate-100 rounded-lg relative overflow-hidden h-20">
+1621-                                        {km > 0 && (
+1622-                                            <div 
+1623-                                                className="absolute bottom-0 left-0 right-0 bg-[#34c759] rounded-lg transition-all duration-700" 
+--
+1639-
+1640-                {/* Recent Activities styled inside beautifully rounded white cards */}
+1641-                <div className="mb-24">
+1642-                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3">RECENT WORKOUTS</h3>
+1643-                    <div className="space-y-3">
+1644:                        {runs.length > 0 ? runs.slice(0, 3).map(run => (
+1645-                            <div key={run.id} className="p-4 skeuo-element flex justify-between items-center">
+1646-                                <div className="flex items-center gap-3">
+1647-                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${run.type === 'walk' ? 'bg-blue-50 border-blue-100' : 'bg-green-50 border-green-100'}`}>
+1648-                                        {run.type === 'walk' ? (
+1649-                                            <Navigation size={18} className="text-[#007aff]" />
+--
+1959-                    <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Progress</h1>
+1960-                </header>
+1961-
+1962-                {/* Segmented active chart toggles (W | M | Y) */}
+1963-                <div className="p-1 bg-[#e3e3e9] rounded-full flex items-center justify-between mb-6">
+1964:                    {['W', 'M', 'Y'].map((tab) => (
+1965-                        <button 
+1966-                            key={tab}
+1967-                            id={`segmented-tab-${tab}`}
+1968-                            onClick={() => setActiveProgressTab(tab as any)}
+1969-                            className={`flex-1 py-1.5 rounded-full text-xs font-bold transition-all ${activeProgressTab === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+--
+1982-                    </p>
+1983-
+1984-                    {/* Chart Visual representing monthly progression bar-group */}
+1985-                    {runs.length > 0 ? (
+1986-                        <div className="flex justify-between items-end h-28 px-2 gap-4 mt-8">
+1987:                            {monthlyActivity.map((h, i) => (
+1988-                                <div key={i} className="flex-1 flex flex-col items-center gap-2">
+1989-                                    <div className="w-full bg-[#f2f2f7] rounded-lg relative overflow-hidden h-20">
+1990-                                        {h > 0 && (
+1991-                                            <div 
+1992-                                                className="absolute bottom-0 left-0 right-0 bg-[#34c759]/90 rounded-lg transition-all" 
+--
+2008-
+2009-                {/* Achievements awards badge column scroll */}
+2010-                <div className="mb-6">
+2011-                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3">ACHIEVEMENTS</h3>
+2012-                    <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+2013:                        {achievementsList.map((badge, i) => (
+2014-                            <div 
+2015-                                key={i} 
+2016-                                className={`skeuo-element p-4 flex-shrink-0 text-center w-28 shadow-sm transition-all duration-300 ${badge.unlocked ? "opacity-100 scale-100" : "opacity-40 scale-95"}`}
+2017-                            >
+2018-                                <div className={`w-12 h-12 rounded-full mx-auto bg-gradient-to-br ${badge.unlocked ? badge.color : "from-slate-300 to-slate-400"} flex items-center justify-center p-2 shadow-sm relative`}>
+--
+2099-                        <p className="text-[9px] font-bold text-indigo-400 tracking-wider">AI DIAGNOSIS COMMAND</p>
+2100-                        <h4 className="font-bold text-base mt-1">Diagnostic Circuit Projections</h4>
+2101-                        <p className="text-xs text-slate-300 mt-3 mb-4">Request a high-performance body circuit diagnostic tailored dynamically to your profile criteria.</p>
+2102-                        
+2103-                        <div className="flex gap-2">
+2104:                            {["Upper Core", "Lower Quad", "Active Breath"].map(target => (
+2105-                                <button 
+2106-                                    key={target} 
+2107-                                    id={`diag-circuit-${target}`}
+2108-                                    onClick={() => fetchWorkout(target)} 
+2109-                                    className="px-3 py-1.5 bg-white/10 rounded-xl text-[10px] font-bold hover:bg-white/20 transition-all uppercase"
+--
+2229-
+2230-        const renderColorfulDigits = (text: string | number) => {
+2231-            const str = String(text);
+2232-            const colors = ["text-red-500", "text-orange-500", "text-amber-500", "text-green-500", "text-blue-500", "text-indigo-500", "text-purple-500", "text-pink-500"];
+2233-            let charIndex = 0;
+2234:            return str.split('').map((char, index) => {
+2235-                if (/[0-9]/.test(char)) {
+2236-                    const color = colors[charIndex % colors.length];
+2237-                    charIndex++;
+2238-                    return <span key={index} className={color + " drop-shadow-md font-extrabold"}>{char}</span>;
+2239-                }
+--
+2244-        const missionGoalMeters = 2500; 
+2245-        const displayDistance = (distance / 1000).toFixed(2);
+2246-        const displayUnit = "km";
+2247-        const progressPercent = Math.min(100, (distance / missionGoalMeters) * 100);
+2248-
+2249:        // Pre-calculate running tracking data for high-fidelity active map render
+2250:        const activeRouteForMap = runDataRef.current?.coordinates && runDataRef.current.coordinates.length > 0
+2251-            ? runDataRef.current.coordinates
+2252-            : [{ lat: 12.9716, lng: 77.5946 }]; // Default fallback so math doesn't crash
+2253-
+2254:        const mapLats = activeRouteForMap.map(c => c.lat);
+2255:        const mapLngs = activeRouteForMap.map(c => c.lng);
+2256:        const minLatVal = Math.min(...mapLats);
+2257:        const maxLatVal = Math.max(...mapLats);
+2258:        const minLngVal = Math.min(...mapLngs);
+2259:        const maxLngVal = Math.max(...mapLngs);
+2260-
+2261-        const latSpanVal = maxLatVal - minLatVal || 0.0001;
+2262-        const lngSpanVal = maxLngVal - minLngVal || 0.0001;
+2263-
+2264:        const mapPadding = 0.15;
+2265:        const minLatPVal = minLatVal - latSpanVal * mapPadding;
+2266:        const maxLatPVal = maxLatVal + latSpanVal * mapPadding;
+2267:        const minLngPVal = minLngVal - lngSpanVal * mapPadding;
+2268:        const maxLngPVal = maxLngVal + lngSpanVal * mapPadding;
+2269-
+2270-        const rangeLatVal = maxLatPVal - minLatPVal;
+2271-        const rangeLngVal = maxLngPVal - minLngPVal;
+2272-
+2273:        const pointsList = activeRouteForMap.map(pt => {
+2274-            const x = ((pt.lng - minLngPVal) / rangeLngVal) * 100;
+2275-            const y = 100 - (((pt.lat - minLatPVal) / rangeLatVal) * 100);
+2276-            return `${x.toFixed(1)},${y.toFixed(1)}`;
+2277-        });
+2278-        const svgPoints = pointsList.join(" ");
+2279-
+2280:        const startPt = activeRouteForMap[0] || { lat: 12.9716, lng: 77.5946 };
+2281:        const endPt = activeRouteForMap[activeRouteForMap.length - 1] || { lat: 12.9716, lng: 77.5946 };
+2282-
+2283-        const startX = ((startPt.lng - minLngPVal) / rangeLngVal) * 100;
+2284-        const startY = 100 - (((startPt.lat - minLatPVal) / rangeLatVal) * 100);
+2285-
+2286-        const endX = ((endPt.lng - minLngPVal) / rangeLngVal) * 100;
+2287-        const endY = 100 - (((endPt.lat - minLatPVal) / rangeLatVal) * 100);
+2288-
+2289:        // Interpolate current position along activeRouteForMap relative to progressPercent
+2290-        const exactIndex = Math.min(
+2291:            activeRouteForMap.length - 1,
+2292:            Math.max(0, (progressPercent / 100) * (activeRouteForMap.length - 1))
+2293-        );
+2294-        const floorIndex = Math.floor(exactIndex);
+2295:        const ceilIndex = Math.min(activeRouteForMap.length - 1, floorIndex + 1);
+2296-        const fraction = exactIndex - floorIndex;
+2297:        const pt1 = activeRouteForMap[floorIndex] || startPt;
+2298:        const pt2 = activeRouteForMap[ceilIndex] || startPt;
+2299-        const runnerPt = {
+2300-            lat: pt1.lat + (pt2.lat - pt1.lat) * fraction,
+2301-            lng: pt1.lng + (pt2.lng - pt1.lng) * fraction
+2302-        };
+2303-        const runnerX = ((runnerPt.lng - minLngPVal) / rangeLngVal) * 100;
+--
+2326-            if (gpsStatus === "POOR SIGNAL" || gpsStatus === "LOCKING...") return "bg-orange-400";
+2327-            if (gpsStatus === "WAITING") return "bg-slate-500";
+2328-            return "bg-neonCyan";
+2329-        };
+2330-
+2331:        // Beautiful Vector MiniMap Component
+2332:        const MiniMap = ({ coordinates }: { coordinates: { lat: number; lng: number }[] }) => {
+2333-            if (!coordinates || coordinates.length === 0) {
+2334-                return (
+2335-                    <div className="w-full h-44 bg-slate-900 rounded-[2rem] flex items-center justify-center relative overflow-hidden mb-6">
+2336-                        <p className="text-slate-500 font-bold text-xs">Waiting for GPS coordinate points...</p>
+2337-                    </div>
+2338-                );
+2339-            }
+2340-
+2341-            // Calculate bounds of coordinates
+2342:            const lats = coordinates.map(c => c.lat);
+2343:            const lngs = coordinates.map(c => c.lng);
+2344-            const minLat = Math.min(...lats);
+2345-            const maxLat = Math.max(...lats);
+2346-            const minLng = Math.min(...lngs);
+2347-            const maxLng = Math.max(...lngs);
+2348-
+--
+2357-            const maxLngP = maxLng + lngSpan * padding;
+2358-
+2359-            const rangeLat = maxLatP - minLatP;
+2360-            const rangeLng = maxLngP - minLngP;
+2361-
+2362:            // Map coordinates to SVG viewbox points (e.g. 0 to 100)
+2363:            const pointsList = coordinates.map(pt => {
+2364-                const x = ((pt.lng - minLngP) / rangeLng) * 100;
+2365-                const y = 100 - (((pt.lat - minLatP) / rangeLat) * 100);
+2366-                return `${x.toFixed(1)},${y.toFixed(1)}`;
+2367-            });
+2368-            const svgPoints = pointsList.join(" ");
+--
+2381-                    <div className="absolute inset-0 bg-grid opacity-15 pointer-events-none"></div>
+2382-                    
+2383-                    {/* Header segment */}
+2384-                    <div className="relative z-10 flex justify-between items-center">
+2385-                        <span className="text-[9px] font-black tracking-widest text-[#34c759] uppercase bg-green-500/10 px-2.5 py-0.5 rounded">GPS VECTOR TRACK</span>
+2386:                        <span className="text-[9px] font-bold text-slate-400">Athlete Route Map</span>
+2387-                    </div>
+2388-
+2389-                    {/* SVG Visual Stage */}
+2390-                    <div className="relative flex-1 w-full h-full min-h-[90px] mt-2">
+2391-                        <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible" preserveAspectRatio="none">
+--
+2452-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">CALORIES BURNT</p>
+2453-                                <p className="text-2xl font-black text-slate-900 mt-1">~{Math.floor((lastSummary.distance/1000) * 72 * (lastSummary.type === 'walk' ? 0.53 : 1.036))} kcal</p>
+2454-                            </div>
+2455-                        </div>
+2456-
+2457:                        {/* Interactive dynamic mini-map path rendering screen */}
+2458:                        <MiniMap coordinates={lastSummary.coordinates} />
+2459-
+2460-                        {/* Interactive dynamic analytics trigger buttons */}
+2461-                        <div className="grid grid-cols-2 gap-3 mb-6">
+2462-                            <button 
+2463-                                id="stop-run-analyze-btn"
+--
+2670-                                <span className="w-10 text-left">KM</span>
+2671-                                <span className="flex-1 text-left pl-2">PACE (/KM)</span>
+2672-                                <span className="w-16 text-right">TIME</span>
+2673-                            </div>
+2674-                            <div className="flex flex-col gap-4 px-5 pb-4">
+2675:                                {getSplitsList().map((split, i) => (
+2676-                                    <div key={split.km} className="flex items-center text-sm font-bold text-white">
+2677-                                        <span className="w-10 text-left text-[17px] font-black" style={{color: i===0?'#34c759':i===1?'#00e5ff':'#af52de'}}>{split.km}</span>
+2678-                                        <div className="flex-1 flex items-center pr-2">
+2679-                                            <div className="flex h-[10px] bg-[#1c1d21] rounded-r-lg w-full overflow-hidden shrink-0 max-w-[150px] shadow-inner">
+2680-                                                <div className="h-full rounded-r-lg shadow-[inset_0_1px_3px_rgba(255,255,255,0.2)]" style={{
+--
+2843-            </>
+2844-
+2845-            {['home', 'plan', 'run_tab', 'progress', 'more', 'profile'].includes(view) && (
+2846-                <div className="nav-dock-container pointer-events-none">
+2847-                    <nav className="nav-pill pointer-events-auto">
+2848:                        {navItems.map((item) => {
+2849-                            // Support profile highlight inside more tab
+2850-                            const isCurrent = view === item.id || (item.id === 'more' && view === 'profile');
+2851-                            const IconComp = item.icon;
+2852-                            return (
+2853-                                <button 

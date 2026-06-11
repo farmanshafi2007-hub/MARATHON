@@ -4,8 +4,6 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, Component } from 'react';
-import { APIProvider, Map, Marker, useMap } from '@vis.gl/react-google-maps';
-import { MapPolyline } from './MapPolyline';
 import { 
   Activity, 
   BarChart2, 
@@ -393,59 +391,7 @@ function safeJsonParse(str: string | null, fallback: any): any {
     }
 }
 
-export default function AppWrapper() {
-  const [apiKey, setApiKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    let keyFound = false;
-    // Check locally injected first
-    const localKey = (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY || (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY;
-    if (localKey) {
-        setApiKey(localKey);
-        keyFound = true;
-    }
-
-    fetch('/api/config')
-      .then(res => res.json())
-      .then(data => {
-          if (!keyFound && data.googleMapsApiKey) {
-              setApiKey(data.googleMapsApiKey);
-          } else if (!keyFound) {
-              setApiKey(''); // To proceed without it
-          }
-      })
-      .catch(() => {
-          if (!keyFound) setApiKey('');
-      });
-  }, []);
-
-  if (apiKey === null) return <div className="fixed inset-0 bg-black flex items-center justify-center"><div className="text-white text-xs font-bold tracking-widest uppercase animate-pulse">Initializing Systems...</div></div>;
-
-  return (
-    <ErrorBoundary>
-      {apiKey ? (
-        <APIProvider apiKey={apiKey} version="weekly">
-          <App apiKey={apiKey} />
-        </APIProvider>
-      ) : (
-        <App apiKey={apiKey} />
-      )}
-    </ErrorBoundary>
-  );
-}
-
-// ACTIVE APP VIEW (Running Counter screen)
-    const MapPanner = ({ isFollowCamera, runnerPt }: { isFollowCamera: boolean, runnerPt: { lat: number, lng: number }}) => {
-        const map = useMap();
-        useEffect(() => {
-            if (map && isFollowCamera && runnerPt) {
-                map.panTo(runnerPt);
-            }
-        }, [map, runnerPt.lat, runnerPt.lng, isFollowCamera]);
-        return null;
-    };
-
-function App({ apiKey }: { apiKey: string }) {
+export default function App() {
     // Global State matching Apple-style modular views: 'home', 'plan', 'run_tab', 'progress', 'more'
     const [view, setView] = useState('splash');
     const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -1037,7 +983,7 @@ function App({ apiKey }: { apiKey: string }) {
     };
 
     const formatPace = (totalSeconds: number, distanceMeters: number) => {
-        if (distanceMeters < 10 || totalSeconds === 0) return "6'15\"";
+        if (distanceMeters < 10 || totalSeconds === 0) return "--'--\"";
         const pace = totalSeconds / (distanceMeters / 1000);
         if (pace > 3599) return "59'59\""; 
         return `${Math.floor(pace / 60)}'${Math.floor(pace % 60).toString().padStart(2, '0')}"`;
@@ -1388,22 +1334,22 @@ function App({ apiKey }: { apiKey: string }) {
                                 id="google-login-btn"
                                 onClick={() => handleLogin(false)}
                                 disabled={isSigningIn}
-                                className="w-full py-4 bg-white text-slate-900 rounded-2xl font-bold text-sm skeuo-btn flex items-center justify-center gap-3 border border-slate-200 disabled:opacity-50 cursor-pointer"
+                                className="w-full py-4 bg-gradient-to-r from-neutral-800 to-black text-white hover:from-neutral-700 hover:to-neutral-900 rounded-2xl font-bold text-sm skeuo-btn flex items-center justify-center gap-3 border border-white/10 shadow-[0_4px_14px_0_rgba(0,0,0,0.39)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.23)] hover:-translate-y-[1px] transition-all disabled:opacity-50 cursor-pointer"
                             >
                                 {isSigningIn ? (
                                     <>
-                                        <Loader2 className="animate-spin text-slate-700" size={18} />
-                                        <span>Synchronizing Profile...</span>
+                                        <Loader2 className="animate-spin text-white" size={18} />
+                                        <span className="tracking-wide">Synchronizing Profile...</span>
                                     </>
                                 ) : (
                                     <>
-                                        <svg width="18" height="18" viewBox="0 0 24 24">
+                                        <div className="bg-white p-1 rounded-full"><svg width="18" height="18" viewBox="0 0 24 24">
                                             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                                             <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
                                             <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
                                             <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                                        </svg>
-                                        <span className="font-sans">Continue with Google</span>
+                                        </svg></div>
+                                        <span className="font-sans ml-1 tracking-wide">Continue with Google</span>
                                     </>
                                 )}
                             </button>
@@ -2310,7 +2256,7 @@ function App({ apiKey }: { apiKey: string }) {
             const currentAvgPace = formatPace(elapsed, distance);
             
             if (totalKm < 1) {
-                list.push({ km: 1, pace: currentAvgPace === "--" ? "5:28" : currentAvgPace });
+                list.push({ km: 1, pace: currentAvgPace.includes("--") ? "--'--\"" : currentAvgPace });
             } else {
                 const count = Math.min(3, Math.floor(totalKm));
                 for (let i = count; i >= 1; i--) {
@@ -2538,15 +2484,6 @@ function App({ apiKey }: { apiKey: string }) {
                         <div className="bg-[#34c759] rounded-full px-3.5 py-1 font-bold text-white text-[12px] shadow-sm tracking-wide leading-none">
                             {(new Date()).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false})}
                         </div>
-                        <div className="flex items-center gap-1.5 opacity-100">
-                            {/* Dummy iOS signal icons */}
-                            <svg width="18" height="12" viewBox="0 0 16 12" fill="white"><path d="M1 10h2V2H1v8zm4 0h2V5H5v5zm4 0h2V2H9v8zm4 0h2V0h-2v10z"/></svg>
-                            <span className="text-[12px] font-bold font-sans tracking-wide">5G</span>
-                            <div className="relative w-[28px] h-[14px] border border-white rounded-[4px] p-[1px] ml-1 opacity-90">
-                                <div className="absolute right-[-4px] top-[3px] w-[3px] h-1.5 bg-white border border-white rounded-r-md"></div>
-                                <div className="h-full bg-white rounded-[2px]" style={{width: '75%'}}></div>
-                            </div>
-                        </div>
                     </div>
 
                     {/* Timer Section */}
@@ -2627,7 +2564,7 @@ function App({ apiKey }: { apiKey: string }) {
                                 <span className="text-[10px] text-slate-400 font-bold tracking-widest uppercase leading-none">Heart Rate</span>
                             </div>
                             <div className="mt-auto flex items-baseline gap-1.5">
-                                <span className="text-3xl font-bold text-[#ff9500] leading-none">0</span>
+                                <span className="text-3xl font-bold text-[#ff9500] leading-none">--</span>
                                 <span className="text-xs text-slate-500 font-semibold mb-1">bpm</span>
                             </div>
                         </div>
@@ -2698,12 +2635,9 @@ function App({ apiKey }: { apiKey: string }) {
                         {/* Return/Stop Action */}
                         <button onClick={stopRun} className="flex flex-col items-center gap-2 group cursor-pointer z-10 w-[72px]">
                             <div className="w-[60px] h-[60px] rounded-full bg-[#2a2b2f] border border-white/5 flex items-center justify-center relative shadow-lg group-hover:scale-105 transition-transform">
-                                {workoutType === 'run' ? <Flame size={26} className="text-[#a8ff78]" /> : <Navigation size={26} className="text-[#00e5ff]"/>}
-                                <div className="absolute top-0 right-0 w-[18px] h-[18px] bg-[#34c759] rounded-full flex items-center justify-center border-2 border-[#1a1b1e]">
-                                    <CheckCircle2 size={12} className="text-black" />
-                                </div>
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff453a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="6" height="6"></rect><circle cx="12" cy="12" r="10"></circle></svg>
                             </div>
-                            <span className="text-[13px] font-bold text-slate-300 tracking-wide mt-1">Run</span>
+                            <span className="text-[13px] font-bold text-slate-300 tracking-wide mt-1">End</span>
                         </button>
 
                         {/* Play/Pause Central Button */}
