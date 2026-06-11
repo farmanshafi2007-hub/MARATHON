@@ -203,6 +203,10 @@ class GPSEngine {
     lowSpeedDuration = 0;
     consecutiveGoodAccuracyCount = 0;
     isLocked = false;
+    speedHistory: { speed: number, dt: number }[] = [];
+    kalmanLat = 0;
+    kalmanLng = 0;
+    kalmanP = 1; 
 
     haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
         const R = 6371e3; // Earth radius in meters
@@ -215,51 +219,109 @@ class GPSEngine {
     pause() {
         this.lastValidPoint = null;
         this.lowSpeedDuration = 0;
+        this.speedHistory = [];
+    }
+
+    applyKalmanFilter(lat: number, lng: number, accuracy: number) {
+         if (this.kalmanLat === 0) {
+             this.kalmanLat = lat;
+             this.kalmanLng = lng;
+             this.kalmanP = accuracy * accuracy;
+             return { lat, lng };
+         }
+         const Q = 0.00001; // process noise
+         const R = accuracy * accuracy; // measurement noise
+         this.kalmanP += Q;
+         const K = this.kalmanP / (this.kalmanP + R);
+         this.kalmanLat = this.kalmanLat + K * (lat - this.kalmanLat);
+         this.kalmanLng = this.kalmanLng + K * (lng - this.kalmanLng);
+         this.kalmanP = (1 - K) * this.kalmanP;
+         return { lat: this.kalmanLat, lng: this.kalmanLng };
     }
 
     processPoint(rawPoint: GeolocationPosition) {
-        const { latitude, longitude, accuracy } = rawPoint.coords;
+        let { latitude, longitude, accuracy } = rawPoint.coords;
         const timestamp = rawPoint.timestamp || Date.now();
 
-        if (accuracy > 60) return { status: 'LOW_ACCURACY', distance: this.totalDistance, accuracy };
+        // High accuracy check (> 50 drop entirely, > 20 warn)
+        if (accuracy > 50) return { status: 'LOW_ACCURACY', distance: this.totalDistance, accuracy, speed: 0 };
+        if (accuracy > 20) return { status: 'POOR_SIGNAL', distance: this.totalDistance, accuracy, speed: 0 };
+
+        const smoothed = this.applyKalmanFilter(latitude, longitude, accuracy);
+        latitude = smoothed.lat;
+        longitude = smoothed.lng;
 
         if (!this.isLocked) {
-            if (accuracy <= 40) {
+            if (accuracy <= 20) {
                 this.consecutiveGoodAccuracyCount++;
                 if (this.consecutiveGoodAccuracyCount >= 2) {
                     this.isLocked = true;
                     this.lastValidPoint = { lat: latitude, lng: longitude };
                     this.lastTime = timestamp;
-                    return { status: 'LOCKED', distance: this.totalDistance, accuracy };
+                    return { status: 'LOCKED', distance: this.totalDistance, accuracy, speed: 0, coords: { lat: latitude, lng: longitude } };
                 }
             }
-            return { status: 'LOCKING', distance: this.totalDistance, accuracy };
+            return { status: 'LOCKING', distance: this.totalDistance, accuracy, speed: 0 };
         }
 
         const dt = (timestamp - this.lastTime) / 1000; 
-        if (dt <= 0) return { status: 'INVALID_TIME', distance: this.totalDistance, accuracy };
+        if (dt <= 0) return { status: 'INVALID_TIME', distance: this.totalDistance, accuracy, speed: 0 };
 
-        if (!this.lastValidPoint) return { status: 'ERROR', distance: this.totalDistance, accuracy };
-        const dist = this.haversine(this.lastValidPoint.lat, this.lastValidPoint.lng, latitude, longitude);
-        const speedMs = dist / dt;
-        
-        if (speedMs < 0.2) {
-            this.lowSpeedDuration += dt;
-            if (this.lowSpeedDuration >= 10) return { status: 'AUTO_PAUSED', distance: this.totalDistance, accuracy, speed: 0 };
-            return { status: 'STATIONARY', distance: this.totalDistance, accuracy };
-        }
-
-        if (speedMs > 12) return { status: 'JUMP', distance: this.totalDistance, accuracy };
-        
-        if (dist > 1.5) {
-            this.totalDistance += dist;
+        if (!this.lastValidPoint) {
             this.lastValidPoint = { lat: latitude, lng: longitude };
             this.lastTime = timestamp;
-            this.lowSpeedDuration = 0;
-            return { status: 'MOVING', distance: this.totalDistance, accuracy, speed: speedMs * 3.6 };
+            return { status: 'WAITING', distance: this.totalDistance, accuracy, speed: 0 };
         }
 
-        return { status: 'NOISE', distance: this.totalDistance, accuracy };
+        let dist = this.haversine(this.lastValidPoint.lat, this.lastValidPoint.lng, latitude, longitude);
+        
+        // Anti-GPS drift system
+        if (dist < accuracy) { 
+            return { status: 'STATIONARY', distance: this.totalDistance, accuracy, speed: 0 };
+        }
+
+        const speedMs = dist / dt;
+        const speedKmh = speedMs * 3.6;
+
+        // Speed validation
+        if (speedKmh > 35) {
+            return { status: 'NOISE', distance: this.totalDistance, accuracy, speed: 0 }; 
+        }
+
+        // MA speed smoothing
+        this.speedHistory.push({ speed: speedKmh, dt });
+        let sumSpeed = 0;
+        let sumDt = 0;
+        while (this.speedHistory.length > 0 && sumDt > 15) {
+            const shift = this.speedHistory.shift();
+            if (shift) sumDt -= shift.dt;
+        }
+        sumDt = 0; 
+        for(const hist of this.speedHistory) {
+             sumSpeed += hist.speed * hist.dt;
+             sumDt += hist.dt;
+        }
+        const avgSpeedKmh = sumDt > 0 ? sumSpeed / sumDt : speedKmh;
+
+        // Auto pause
+        if (avgSpeedKmh < 1.0) {
+            this.lowSpeedDuration += dt;
+            if (this.lowSpeedDuration >= 10) return { status: 'AUTO_PAUSED', distance: this.totalDistance, accuracy, speed: 0 };
+            return { status: 'STATIONARY', distance: this.totalDistance, accuracy, speed: avgSpeedKmh };
+        }
+
+        this.totalDistance += dist;
+        this.lastValidPoint = { lat: latitude, lng: longitude };
+        this.lastTime = timestamp;
+        this.lowSpeedDuration = 0;
+
+        return { 
+            status: 'MOVING', 
+            distance: this.totalDistance, 
+            accuracy, 
+            speed: avgSpeedKmh, 
+            coords: { lat: latitude, lng: longitude }
+        };
     }
 }
 
@@ -315,28 +377,48 @@ function safeJsonParse(str: string | null, fallback: any): any {
     }
 }
 
-const API_KEY =
-  process.env.GOOGLE_MAPS_PLATFORM_KEY ||
-  (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY ||
-  (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY ||
-  '';
-
-// --- APP COMPONENT ---
 export default function AppWrapper() {
+  const [apiKey, setApiKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    let keyFound = false;
+    // Check locally injected first
+    const localKey = (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY || (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY;
+    if (localKey) {
+        setApiKey(localKey);
+        keyFound = true;
+    }
+
+    fetch('/api/config')
+      .then(res => res.json())
+      .then(data => {
+          if (!keyFound && data.googleMapsApiKey) {
+              setApiKey(data.googleMapsApiKey);
+          } else if (!keyFound) {
+              setApiKey(''); // To proceed without it
+          }
+      })
+      .catch(() => {
+          if (!keyFound) setApiKey('');
+      });
+  }, []);
+
+  if (apiKey === null) return <div className="fixed inset-0 bg-black flex items-center justify-center"><div className="text-white text-xs font-bold tracking-widest uppercase animate-pulse">Initializing Systems...</div></div>;
+
   return (
     <ErrorBoundary>
-      {API_KEY ? (
-        <APIProvider apiKey={API_KEY} version="weekly">
-          <App />
+      {apiKey ? (
+        <APIProvider apiKey={apiKey} version="weekly">
+          <App apiKey={apiKey} />
         </APIProvider>
       ) : (
-        <App />
+        <App apiKey={apiKey} />
       )}
     </ErrorBoundary>
   );
 }
 
-function App() {
+function App({ apiKey }: { apiKey: string }) {
     // Global State matching Apple-style modular views: 'home', 'plan', 'run_tab', 'progress', 'more'
     const [view, setView] = useState('splash');
     const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -644,10 +726,19 @@ function App() {
     };
 
     // --- TRACKING LOGIC & CONFIRMATION VIBRATIONS ---
-    const triggerVibration = (pattern: number | number[]) => {
+    const triggerVibration = (pattern: 'START' | 'STOP' | 'PAUSE' | 'RESUME' | 'MILESTONE' | number | number[]) => {
       if (typeof window !== "undefined" && navigator.vibrate) {
         try {
-          navigator.vibrate(pattern);
+            let p: number | number[] = 50;
+            switch(pattern) {
+                case 'START': p = [100]; break;
+                case 'STOP': p = [100, 50, 100]; break;
+                case 'PAUSE': p = [50]; break;
+                case 'RESUME': p = [50, 50]; break;
+                case 'MILESTONE': p = [200, 100, 200]; break; // double pulse for milestone
+                default: p = pattern as number | number[];
+            }
+          navigator.vibrate(p);
         } catch (e) {
           console.warn("Vibration failed:", e);
         }
@@ -672,10 +763,40 @@ function App() {
         rAFRef.current = requestAnimationFrame(updateUI);
     }, []);
 
+    const wakeLockRef = useRef<any>(null);
+
+    const requestWakeLock = async () => {
+        try {
+            if ('wakeLock' in navigator) {
+                wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+            }
+        } catch (err) {
+            console.warn("Wake Lock Error:", err);
+        }
+    };
+
+    const releaseWakeLock = () => {
+        if (wakeLockRef.current) {
+            wakeLockRef.current.release().catch(console.error);
+            wakeLockRef.current = null;
+        }
+    };
+
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && isRunning && !isPaused) {
+                requestWakeLock();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, [isRunning, isPaused]);
+
     // Simulated route deleted for authenticity
 
     const startRun = async () => {
-        triggerVibration(100); // 100ms vibration on start-active
+        requestWakeLock();
+        triggerVibration('START'); // vibration on start-active
         setIsRunning(true); 
         setIsPaused(false); 
         setAutoPaused(false); 
@@ -718,8 +839,13 @@ function App() {
 
                 if (result.status === 'MOVING' || result.status === 'LOCKED' || result.status === 'STATIONARY') {
                     if (autoPaused) setAutoPaused(false);
+                    const oldKm = Math.floor(runDataRef.current.distance / 1000);
                     runDataRef.current.distance = result.distance;
                     runDataRef.current.speed = result.speed || 0;
+                    const newKm = Math.floor(runDataRef.current.distance / 1000);
+                    if (newKm > oldKm && newKm > 0) {
+                        triggerVibration('MILESTONE');
+                    }
                     
                     // Always append coordinate path point securely
                     runDataRef.current.coordinates.push({
@@ -744,7 +870,8 @@ function App() {
     };
 
     const stopRun = async () => { 
-        triggerVibration([100, 50, 100]); // Brutalist confirmation pattern
+        releaseWakeLock();
+        triggerVibration('STOP'); // Brutalist confirmation pattern
         if (rAFRef.current) cancelAnimationFrame(rAFRef.current);
         if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
         
@@ -831,13 +958,15 @@ function App() {
     };
 
     const togglePause = () => {
-        triggerVibration(50); // Small 50ms pulse
+        triggerVibration(isPaused ? 'RESUME' : 'PAUSE'); // Small pulse
         if (!isPaused) {
+            releaseWakeLock();
             setIsPaused(true);
             runDataRef.current.pauseStartTime = Date.now();
             runDataRef.current.speed = 0;
             gpsEngineRef.current.pause(); 
         } else {
+            requestWakeLock();
             setIsPaused(false);
             setAutoPaused(false);
             runDataRef.current.totalPausedTime += (Date.now() - runDataRef.current.pauseStartTime);
@@ -849,6 +978,13 @@ function App() {
         const pace = totalSeconds / (distanceMeters / 1000);
         if (pace > 3599) return "59'59\""; 
         return `${Math.floor(pace / 60)}'${Math.floor(pace % 60).toString().padStart(2, '0')}"`;
+    };
+
+    const formatCurrentPace = (speedKmh: number) => {
+        if (speedKmh < 1.0) return "--'--\""; // Stationary or auto-paused
+        const paceMinKm = 60 / speedKmh;
+        if (paceMinKm > 59.99) return "59'59\"";
+        return `${Math.floor(paceMinKm)}'${Math.floor((paceMinKm % 1) * 60).toString().padStart(2, '0')}"`;
     };
 
     const formatTime = (totalSeconds: number) => {
@@ -1003,17 +1139,17 @@ function App() {
     };
 
     const callGemini = async (prompt: string, systemPrompt = "You are Runo Elite AI, a high-performance fitness coach.") => {
-        if (!process.env.GEMINI_API_KEY) return "API Key missing.";
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         try {
-            const response = await ai.models.generateContent({
-                model: "gemini-1.5-flash",
-                contents: prompt,
-                config: { systemInstruction: systemPrompt }
+            const response = await fetch('/api/gemini', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, systemPrompt })
             });
-            return response.text;
-        } catch (e) {
-            console.error(e);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            return data.text;
+        } catch (error) {
+            console.error("Coach API Error:", error);
             return null;
         }
     };
@@ -1090,7 +1226,8 @@ function App() {
                       await signInWithRedirect(auth, new GoogleAuthProvider());
                   }
               } else if (err.code === "auth/unauthorized-domain") {
-                  setAuthError(`Action Required: Please add "${window.location.hostname}" to your Firebase Console (Authentication > Settings > Authorized domains) to fix this Google login error.`);
+                  console.warn("Domain not authorized for Firebase Auth. Falling back to Guest Mode.");
+                  handleGuestLogin();
               } else if (err.code === "auth/network-request-failed") {
                   setAuthError("Network request failed. This may be due to an ad-blocker or strict anti-tracking settings blocking the Google Auth popup. Please try using Redirect Login, logging as Guest, or disabling tracking protection.");
                   setShowRedirectOption(true);
@@ -1099,8 +1236,8 @@ function App() {
               } else {
                   setAuthError(err.message || "Failed to authenticate with Google. Please try again.");
               }
-              setIsSigningIn(false);
             }
+            setIsSigningIn(false);
         };
 
         const handleGuestLogin = () => {
@@ -2302,7 +2439,7 @@ function App() {
                 
                 {/* HIGH-FIDELITY VECTOR STREET MAP BACKDROP */}
                 <div id="gps-vector-map-backdrop" className="opacity-fade-in absolute inset-x-0 top-0 h-[45%] w-full overflow-hidden relative select-none">
-                    {API_KEY ? (
+                    {apiKey ? (
                         <Map
                             defaultZoom={15}
                             center={activeRouteForMap[0] || { lat: 12.9716, lng: 77.5946 }}
@@ -2425,7 +2562,7 @@ function App() {
                             <div className="text-right">
                                 <p className={`text-[10px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>CURRENT PACE</p>
                                 <h2 className="text-3xl font-black mt-1 tabular-nums leading-none">
-                                    {formatPace(elapsed, distance)} <span className="text-xs font-bold text-slate-400">/km</span>
+                                    {formatCurrentPace(currentSpeed)} <span className="text-xs font-bold text-slate-400">/km</span>
                                 </h2>
                             </div>
                         </div>
