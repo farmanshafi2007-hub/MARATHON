@@ -460,6 +460,7 @@ function App({ apiKey }: { apiKey: string }) {
     const [accuracy, setAccuracy] = useState(0);
     const [gpsStatus, setGpsStatus] = useState("WAITING");
     const [lastSummary, setLastSummary] = useState<any>(null);
+    const [workoutType, setWorkoutType] = useState<'run' | 'walk'>('run');
 
     // AI States
     const [aiBriefing, setAiBriefing] = useState<string | null>(null);
@@ -1226,8 +1227,7 @@ function App({ apiKey }: { apiKey: string }) {
                       await signInWithRedirect(auth, new GoogleAuthProvider());
                   }
               } else if (err.code === "auth/unauthorized-domain") {
-                  console.warn("Domain not authorized for Firebase Auth. Falling back to Guest Mode.");
-                  handleGuestLogin();
+                  setAuthError(`Action Required: Please add BOTH "forgesoftwares.in" AND "${window.location.hostname}" to your Firebase Console (Authentication > Settings > Authorized domains). Note: If you are looking at this in the AI Studio preview window, you must open the app in a New Tab for sign-in to work due to iframe restrictions.`);
               } else if (err.code === "auth/network-request-failed") {
                   setAuthError("Network request failed. This may be due to an ad-blocker or strict anti-tracking settings blocking the Google Auth popup. Please try using Redirect Login, logging as Guest, or disabling tracking protection.");
                   setShowRedirectOption(true);
@@ -1769,12 +1769,30 @@ function App({ apiKey }: { apiKey: string }) {
                     <span className="text-[10px] font-extrabold text-slate-400 tracking-wider mt-3 relative z-10">LOCKING POSITION SENSOR PATH</span>
                 </div>
 
+                {/* Mode Selector (Walk vs Run) */}
+                <div className="flex justify-center mb-6">
+                    <div className="flex bg-slate-100 p-1.5 rounded-full shadow-inner border border-slate-200/50">
+                        <button 
+                            onClick={() => { setWorkoutType('run'); triggerVibration(50); }}
+                            className={`px-8 py-2.5 rounded-full font-black text-sm transition-all duration-300 ${workoutType === 'run' ? 'bg-white shadow-sm text-[#34c759]' : 'text-slate-400 hover:text-slate-600'}`}
+                        >
+                            RUN
+                        </button>
+                        <button 
+                            onClick={() => { setWorkoutType('walk'); triggerVibration(50); }}
+                            className={`px-8 py-2.5 rounded-full font-black text-sm transition-all duration-300 ${workoutType === 'walk' ? 'bg-white shadow-sm text-[#007aff]' : 'text-slate-400 hover:text-slate-600'}`}
+                        >
+                            WALK
+                        </button>
+                    </div>
+                </div>
+
                 {/* Massive Bright Green Active Circle START Button (Column 3) */}
                 <div className="flex justify-center mt-4">
                     <button 
                         id="gps-prep-start-btn"
                         onClick={() => { setView('run'); startRun(); }}
-                        className="w-28 h-28 bg-[#34c759] text-white font-black rounded-full border-4 border-white shadow-xl flex flex-col items-center justify-center active:scale-90 transition-all cursor-pointer hover:bg-emerald-500 duration-300"
+                        className={`w-28 h-28 text-white font-black rounded-full border-4 border-white shadow-xl flex flex-col items-center justify-center active:scale-90 transition-all cursor-pointer duration-300 ${workoutType === 'run' ? 'bg-[#34c759] hover:bg-emerald-500' : 'bg-[#007aff] hover:bg-blue-600'}`}
                     >
                         <span className="text-sm tracking-widest font-black uppercase text-glow">START</span>
                     </button>
@@ -2551,18 +2569,21 @@ function App({ apiKey }: { apiKey: string }) {
                         {/* PRIMARY STATS ROW (Distance & Current Pace) */}
                         <div className="flex justify-between items-baseline border-b border-neutral-600/10 pb-5">
                             <div>
-                                <p className={`text-[10px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>DISTANCE</p>
+                                <p className={`text-[10px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest flex items-center gap-1`}>
+                                    {workoutType === 'run' ? <Flame size={12} className="text-[#34c759]" /> : <Navigation size={12} className="text-[#007aff]" />}
+                                    {workoutType === 'run' ? 'RUN DISTANCE' : 'WALK DISTANCE'}
+                                </p>
                                 <div className="flex items-baseline gap-1 mt-1">
-                                    <h1 className="text-5xl font-black tracking-tighter tabular-nums leading-none">
-                                        {displayDistance}
+                                    <h1 className={`text-6xl font-black tracking-tighter tabular-nums leading-none ${workoutType === 'run' ? 'text-slate-900' : 'text-[#007aff]'}`}>
+                                        <span className={darkMode ? 'text-white' : ''}>{displayDistance}</span>
                                     </h1>
                                     <span className="text-xl font-bold uppercase text-slate-400 font-sans">{displayUnit}</span>
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className={`text-[10px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>CURRENT PACE</p>
-                                <h2 className="text-3xl font-black mt-1 tabular-nums leading-none">
-                                    {formatCurrentPace(currentSpeed)} <span className="text-xs font-bold text-slate-400">/km</span>
+                                <p className={`text-[10px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>PACE</p>
+                                <h2 className="text-4xl font-black mt-1 tabular-nums leading-none tracking-tight">
+                                    {formatCurrentPace(currentSpeed)} <span className="text-sm font-bold text-slate-400 block -translate-y-1">/km</span>
                                 </h2>
                             </div>
                         </div>
@@ -2639,7 +2660,7 @@ function App({ apiKey }: { apiKey: string }) {
                         <button 
                             id="run-active-pause-btn-pill"
                             onClick={togglePause} 
-                            className="flex-[2] py-4.5 bg-[#34c759] hover:bg-emerald-500 text-white rounded-2xl font-black text-sm uppercase tracking-wider text-center active:scale-95 transition-all cursor-pointer shadow-md"
+                            className={`flex-[2] py-4.5 text-white rounded-2xl font-black text-sm uppercase tracking-wider text-center active:scale-95 transition-all cursor-pointer shadow-md ${workoutType === 'run' ? 'bg-[#34c759] hover:bg-emerald-500' : 'bg-[#007aff] hover:bg-blue-600'}`}
                         >
                             {isPaused ? "RESUME" : "PAUSE"}
                         </button>
