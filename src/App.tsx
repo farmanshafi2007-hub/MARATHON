@@ -199,19 +199,21 @@ class GPSEngine {
     totalDistance = 0; // meters
     lastValidTime = 0;
     
-    // 30-second window of validated movements for pace calculation
-    validatedMovements: { dist: number, dt: number }[] = [];
-    
+    // Kalman state
     kalmanLat = 0;
     kalmanLng = 0;
     kalmanP = 1; 
+
+    // Pace/Smoothing windows
+    recentPoints: { lat: number, lng: number, timestamp: number, accuracy: number }[] = [];
+    validatedMovements: { dist: number, dt: number }[] = [];
     
-    lowSpeedDuration = 0;
-    consecutiveGoodAccuracyCount = 0;
+    // Status locks
     isLocked = false;
+    consecutiveGoodCount = 0;
 
     haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
-        const R = 6371e3; // Earth radius in meters
+        const R = 6371e3; 
         const dLat = (lat2 - lat1) * Math.PI / 180;
         const dLon = (lon2 - lon1) * Math.PI / 180;
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
@@ -220,7 +222,7 @@ class GPSEngine {
 
     pause() {
         this.lastValidPoint = null;
-        this.lowSpeedDuration = 0;
+        this.recentPoints = [];
         this.validatedMovements = [];
     }
 
@@ -231,8 +233,8 @@ class GPSEngine {
              this.kalmanP = accuracy * accuracy;
              return { lat, lng };
          }
-         const Q = 0.00001; // process noise
-         const R = accuracy * accuracy; // measurement noise
+         const Q = 0.00001; 
+         const R = accuracy * accuracy; 
          this.kalmanP += Q;
          const K = this.kalmanP / (this.kalmanP + R);
          this.kalmanLat = this.kalmanLat + K * (lat - this.kalmanLat);
@@ -245,27 +247,26 @@ class GPSEngine {
         let { latitude, longitude, accuracy } = rawPoint.coords;
         const timestamp = rawPoint.timestamp || Date.now();
 
-        // 1. Accuracy Check
-        if (accuracy > 50) return { status: 'LOW_ACCURACY', distance: this.totalDistance, accuracy, speed: 0 };
-        if (accuracy > 20) return { status: 'POOR_SIGNAL', distance: this.totalDistance, accuracy, speed: 0 };
+        // 1. Core Accuracy Constraint (< 15-20 meters required)
+        if (accuracy > 21) {
+            return { status: 'POOR_SIGNAL', distance: this.totalDistance, accuracy, speed: 0 };
+        }
 
-        // 2. Kalman Filter
+        // 2. Kalman Filter to eliminate noise
         const smoothed = this.applyKalmanFilter(latitude, longitude, accuracy);
         latitude = smoothed.lat;
         longitude = smoothed.lng;
 
-        // 3. Lock acquisition
+        // 3. Prevent jumps using initialization constraints
         if (!this.isLocked) {
-            if (accuracy <= 20) {
-                this.consecutiveGoodAccuracyCount++;
-                if (this.consecutiveGoodAccuracyCount >= 2) {
-                    this.isLocked = true;
-                    this.lastValidPoint = { lat: latitude, lng: longitude };
-                    this.lastValidTime = timestamp;
-                    return { status: 'LOCKED', distance: this.totalDistance, accuracy, speed: 0, coords: { lat: latitude, lng: longitude } };
-                }
-            }
-            return { status: 'LOCKING', distance: this.totalDistance, accuracy, speed: 0 };
+             this.consecutiveGoodCount++;
+             if (this.consecutiveGoodCount >= 3) {
+                 this.isLocked = true;
+                 this.lastValidPoint = { lat: latitude, lng: longitude };
+                 this.lastValidTime = timestamp;
+                 return { status: 'LOCKED', distance: this.totalDistance, accuracy, speed: 0, coords: { lat: latitude, lng: longitude } };
+             }
+             return { status: 'LOCKING', distance: this.totalDistance, accuracy, speed: 0 };
         }
 
         if (!this.lastValidPoint) {
@@ -274,7 +275,7 @@ class GPSEngine {
             return { status: 'WAITING', distance: this.totalDistance, accuracy, speed: 0 };
         }
 
-        // 4. Distance and Validation
+        // 4. Movement detection
         const dt = (timestamp - this.lastValidTime) / 1000; 
         if (dt <= 0) return { status: 'INVALID_TIME', distance: this.totalDistance, accuracy, speed: 0 };
 
@@ -282,61 +283,47 @@ class GPSEngine {
         
         const speedMs = dist / dt;
         const speedKmh = speedMs * 3.6;
-        
+
+        // Reject teleportation logic
         if (speedKmh > 35) {
             return { status: 'NOISE', distance: this.totalDistance, accuracy, speed: 0 }; 
         }
 
-        const distThreshold = Math.max(8, accuracy);
+        // Drift / Indoor checking
+        // For standard pedestrian logic, dist should exceed noise threshold
+        const noiseFloor = Math.max(8, accuracy / 1.5);
         
-        if (dist < distThreshold || speedKmh < 1.5) {
-            this.lowSpeedDuration = dt; 
-            if (this.lowSpeedDuration >= 10) {
-                return { status: 'AUTO_PAUSED', distance: this.totalDistance, accuracy, speed: 0 };
-            }
+        if (dist < noiseFloor || speedKmh < 1.0) { // Standing still logic
             return { status: 'STATIONARY', distance: this.totalDistance, accuracy, speed: 0 };
         }
 
-        // 5. Validated Movement
+        // Apply point permanently
         this.totalDistance += dist;
         this.lastValidPoint = { lat: latitude, lng: longitude };
         this.lastValidTime = timestamp;
-        this.lowSpeedDuration = 0;
-        
-        // Push validated movement
+
+        // Compute rolling speed
         this.validatedMovements.push({ dist, dt });
-        
-        let sumDt = 0;
-        for (let i = this.validatedMovements.length - 1; i >= 0; i--) {
-            sumDt += this.validatedMovements[i].dt;
-        }
-        while (this.validatedMovements.length > 0 && sumDt > 30) {
-            const removed = this.validatedMovements.shift();
-            if (removed) sumDt -= removed.dt;
-        }
-        
-        let sumWDist = 0;
-        let sumWT = 0;
+        const fresh = [];
+        let sumDist = 0; let sumDt = 0;
         for (const mov of this.validatedMovements) {
-            sumWDist += mov.dist;
-            sumWT += mov.dt;
+            sumDist += mov.dist;
+            sumDt += mov.dt;
+            fresh.push(mov);
         }
-        
-        let rollingSpeedKmh = 0;
-        if (sumWT > 0) {
-            rollingSpeedKmh = (sumWDist / sumWT) * 3.6;
-        } else {
-            rollingSpeedKmh = speedKmh;
-        }
+        this.validatedMovements = fresh.slice(-10); // keep last 10 ticks for smoothness
+
+        const rollingAvMs = sumDt > 0 ? (sumDist / sumDt) : 0;
 
         return { 
             status: 'MOVING', 
             distance: this.totalDistance, 
             accuracy, 
-            speed: rollingSpeedKmh, 
+            speed: rollingAvMs * 3.6,
             coords: { lat: latitude, lng: longitude }
         };
     }
+
 }
 
 // --- SAFE DATE PARSER ---
@@ -828,7 +815,7 @@ export default function App() {
                 if (isPausedRef.current) return; 
 
                 const result = gpsEngineRef.current.processPoint(p);
-                if (result.status === 'LOW_ACCURACY') {
+                if (result.status === 'POOR_SIGNAL' || result.status === 'LOW_ACCURACY') {
                     setGpsStatus("POOR SIGNAL");
                     return;
                 }
@@ -836,42 +823,37 @@ export default function App() {
                     setGpsStatus("LOCKING...");
                     return;
                 }
-                setGpsStatus("RECORDING");
+                if (result.status === 'STATIONARY') {
+                    setGpsStatus("GPS READY");
+                    runDataRef.current.speed = 0;
+                    setAutoPaused(true);
+                    return;
+                }
+                if (result.status === 'NOISE' || result.status === 'INVALID_TIME') return;
+                
+                if (result.status === 'AUTO_PAUSED') {
+                    setGpsStatus("AUTO PAUSED");
+                    setAutoPaused(true);
+                    runDataRef.current.speed = 0;
+                    return;
+                }
 
+                // If moving
+                setAutoPaused(false);
                 if (result.status === 'MOVING') {
-                    if (autoPaused) setAutoPaused(false);
-                    const oldKm = Math.floor(runDataRef.current.distance / 1000);
+                    setGpsStatus("GPS READY");
                     runDataRef.current.distance = result.distance;
-                    runDataRef.current.speed = result.speed || 0;
-                    const newKm = Math.floor(runDataRef.current.distance / 1000);
-                    if (newKm > oldKm && newKm > 0) {
-                        triggerVibration('MILESTONE');
-                        setIsMilestonePulse(true);
-                        setTimeout(() => setIsMilestonePulse(false), 800);
-                    }
-                    
+                    runDataRef.current.speed = result.speed;
                     if (result.coords) {
                         runDataRef.current.coordinates.push(result.coords);
                     }
-                } else if (result.status === 'LOCKED' || result.status === 'STATIONARY') {
-                    if (autoPaused) setAutoPaused(false);
-                    runDataRef.current.speed = 0;
-                    if (result.coords && result.status === 'LOCKED') {
-                        runDataRef.current.coordinates.push(result.coords);
-                    }
-                } else if (result.status === 'AUTO_PAUSED') {
-                    if (!autoPaused) {
-                        setAutoPaused(true);
-                        runDataRef.current.speed = 0;
-                    }
                 }
-            }, (err) => {
-                console.error("GPS Error:", err);
-                setGpsStatus("ERROR");
-            }, { 
-                enableHighAccuracy: true, 
-                maximumAge: 0, 
-                timeout: 10000 
+            }, (error) => {
+                console.error("GPS Error:", error);
+            }, {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 10000
             });
         }
     };
@@ -1793,7 +1775,7 @@ export default function App() {
                         onClick={() => { setView('run'); startRun(); }}
                         className={`w-28 h-28 text-white font-black rounded-full border-4 skeuo-btn shadow-xl flex flex-col items-center justify-center cursor-pointer duration-300 ${workoutType === 'run' ? 'bg-[#34c759]' : 'bg-[#007aff]'} ${darkMode ? 'border-neutral-800 focus:outline-none' : 'border-[#e0e5ec]'}`}
                     >
-                        <span className="text-sm tracking-widest font-black uppercase text-glow">START</span>
+                        <span className="text-sm tracking-widest font-black uppercase text-glow">{workoutType === 'run' ? 'START RUN' : 'START WALK'}</span>
                     </button>
                 </div>
             </div>
@@ -2557,28 +2539,28 @@ export default function App() {
 
                     {/* Stats Grid */}
                     <div className="grid grid-cols-3 gap-3 w-full mb-10 px-0.5">
-                        {/* Heart Rate */}
+                        {/* Pace */}
                         <div className="bg-[#141518]/80 backdrop-blur-md rounded-2xl p-4 border border-white/5 flex flex-col shadow-lg">
                             <div className="flex items-center gap-2 mb-3">
-                                <Activity size={20} className="text-[#ff9500]" />
-                                <span className="text-[10px] text-slate-400 font-bold tracking-widest uppercase leading-none">Heart Rate</span>
+                                <Activity size={20} className="text-[#a8ff78]" />
+                                <span className="text-[10px] text-slate-400 font-bold tracking-widest uppercase leading-none">Pace</span>
                             </div>
                             <div className="mt-auto flex items-baseline gap-1.5">
-                                <span className="text-3xl font-bold text-[#ff9500] leading-none">--</span>
-                                <span className="text-xs text-slate-500 font-semibold mb-1">bpm</span>
+                                <span className="text-3xl font-bold text-[#a8ff78] leading-none">{formatCurrentPace(currentSpeed).replace(':', "'")}</span>
+                                <span className="text-xs text-slate-500 font-semibold mb-1">/km</span>
                             </div>
                         </div>
-                        {/* Calories */}
+                        {/* Speed */}
                         <div className="bg-[#141518]/80 backdrop-blur-md rounded-2xl p-4 border border-white/5 flex flex-col shadow-lg">
                             <div className="flex items-center gap-2 mb-3">
-                                <Flame size={20} className="text-[#ff453a]" />
-                                <span className="text-[10px] text-slate-400 font-bold tracking-widest uppercase leading-none">Calories</span>
+                                <Flame size={20} className="text-[#ff9500]" />
+                                <span className="text-[10px] text-slate-400 font-bold tracking-widest uppercase leading-none">Speed</span>
                             </div>
                             <div className="mt-auto flex items-baseline gap-1.5">
-                                <span className="text-3xl font-bold text-[#ff453a] leading-none">
-                                    {workoutType === 'walk' ? Math.max(0, Math.floor((distance / 1000) * 72 * 0.53)) : Math.max(0, Math.floor((distance / 1000) * 72 * 1.036))}
+                                <span className="text-3xl font-bold text-[#ff9500] leading-none">
+                                    {(currentSpeed || 0).toFixed(1)}
                                 </span>
-                                <span className="text-xs text-slate-500 font-semibold mb-1">kcal</span>
+                                <span className="text-xs text-slate-500 font-semibold mb-1">km/h</span>
                             </div>
                         </div>
                         {/* Duration */}
@@ -2588,41 +2570,7 @@ export default function App() {
                                 <span className="text-[10px] text-slate-400 font-bold tracking-widest uppercase leading-none">Duration</span>
                             </div>
                             <div className="mt-auto flex items-baseline gap-1.5 flex-wrap">
-                                <span className="text-[26px] font-bold text-[#0a84ff] tracking-tight leading-none tabular-nums">{formatTime(elapsed).substring(0, 5)}</span>
-                                <span className="text-xs text-slate-500 font-semibold mb-1">min</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Splits Section */}
-                    <div className="w-full">
-                        <div className="flex justify-between items-center mb-3 px-1">
-                            <h3 className="text-[15px] font-bold text-white tracking-wide">Splits (km)</h3>
-                            <div className="p-1.5 bg-[#1c1d21] rounded-lg border border-white/10 shadow-sm cursor-pointer hover:bg-white/10 transition-colors">
-                                <BarChart2 size={16} className="text-[#0a84ff]" />
-                            </div>
-                        </div>
-                        <div className="bg-[#141518]/60 backdrop-blur-md rounded-[1.5rem] pt-5 border border-white/5 shadow-xl pb-2">
-                            <div className="flex justify-between text-[10px] font-bold text-slate-500 tracking-wider mb-5 px-5">
-                                <span className="w-10 text-left">KM</span>
-                                <span className="flex-1 text-left pl-2">PACE (/KM)</span>
-                                <span className="w-16 text-right">TIME</span>
-                            </div>
-                            <div className="flex flex-col gap-4 px-5 pb-4">
-                                {getSplitsList().map((split, i) => (
-                                    <div key={split.km} className="flex items-center text-sm font-bold text-white">
-                                        <span className="w-10 text-left text-[17px] font-black" style={{color: i===0?'#34c759':i===1?'#00e5ff':'#af52de'}}>{split.km}</span>
-                                        <div className="flex-1 flex items-center pr-2">
-                                            <div className="flex h-[10px] bg-[#1c1d21] rounded-r-lg w-full overflow-hidden shrink-0 max-w-[150px] shadow-inner">
-                                                <div className="h-full rounded-r-lg shadow-[inset_0_1px_3px_rgba(255,255,255,0.2)]" style={{
-                                                    width: split.pace === "--:--" ? "0%" : (Math.max(10, 80 - i * 15)) + "%", 
-                                                    background: i===0?'linear-gradient(90deg, #a8ff78 0%, #78ffd6 100%)':i===1?'linear-gradient(90deg, #00e5ff 0%, #1200ff 100%)':'linear-gradient(90deg, #f093fb 0%, #f5576c 100%)'
-                                                }}></div>
-                                            </div>
-                                        </div>
-                                        <span className="w-16 text-right text-slate-300 font-semibold tracking-tight tabular-nums">{split.pace.replace(':', "'")}"</span>
-                                    </div>
-                                ))}
+                                <span className="text-[20px] font-bold text-[#0a84ff] tracking-tight">{formatTime(elapsed)}</span>
                             </div>
                         </div>
                     </div>
@@ -2637,7 +2585,7 @@ export default function App() {
                             <div className="w-[60px] h-[60px] rounded-full bg-[#2a2b2f] border border-white/5 flex items-center justify-center relative shadow-lg group-hover:scale-105 transition-transform">
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff453a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="6" height="6"></rect><circle cx="12" cy="12" r="10"></circle></svg>
                             </div>
-                            <span className="text-[13px] font-bold text-slate-300 tracking-wide mt-1">End</span>
+                            <span className="text-[11px] font-bold text-slate-300 tracking-wider mt-1 uppercase">{workoutType === 'run' ? 'END RUN' : 'END WALK'}</span>
                         </button>
 
                         {/* Play/Pause Central Button */}
