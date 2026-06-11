@@ -1,0 +1,11 @@
+import fs from 'fs';
+let content = fs.readFileSync('src/App.tsx', 'utf8');
+content = content.replace(/bg-white rounded-3xl border border-slate-100/g, 'skeuo-element');
+content = content.replace(/bg-white rounded-2xl border border-slate-100/g, 'skeuo-element');
+content = content.replace(/bg-white rounded-3xl p-5 border border-slate-100/g, 'skeuo-element p-5');
+content = content.replace(/bg-white p-4 rounded-2xl border border-slate-100/g, 'skeuo-element p-4');
+content = content.replace(/bg-white border border-slate-100 rounded-2xl/g, 'skeuo-element');
+content = content.replace(/bg-white border border-slate-100/g, 'skeuo-element');
+content = content.replace(/bg-slate-100 p-1.5 rounded-full shadow-inner border border-slate-200\/50/g, 'skeuo-element p-1.5 rounded-full');
+content = content.replace(/bg-white shadow-sm/g, 'skeuo-element-pressed');
+fs.writeFileSync('src/App.tsx', content);

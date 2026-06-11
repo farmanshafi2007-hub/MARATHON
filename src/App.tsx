@@ -276,32 +276,38 @@ class GPSEngine {
         let dist = this.haversine(this.lastValidPoint.lat, this.lastValidPoint.lng, latitude, longitude);
         
         // Anti-GPS drift system
-        if (dist < accuracy) { 
-            return { status: 'STATIONARY', distance: this.totalDistance, accuracy, speed: 0 };
-        }
-
         const speedMs = dist / dt;
         const speedKmh = speedMs * 3.6;
 
-        // Speed validation
+        // Ignore micro-jitters if stationary
+        if (dist < 2.0 && this.lowSpeedDuration > 5) {
+            return { status: 'STATIONARY', distance: this.totalDistance, accuracy, speed: 0 };
+        }
+
+        // Speed validation (sprint world record is ~37 km/h, drop > 35)
         if (speedKmh > 35) {
             return { status: 'NOISE', distance: this.totalDistance, accuracy, speed: 0 }; 
         }
 
-        // MA speed smoothing
+        // 3-second WMA speed smoothing
         this.speedHistory.push({ speed: speedKmh, dt });
-        let sumSpeed = 0;
-        let sumDt = 0;
-        while (this.speedHistory.length > 0 && sumDt > 15) {
+        let sumDt = this.speedHistory.reduce((acc, val) => acc + val.dt, 0);
+        while (this.speedHistory.length > 0 && sumDt > 3) {
             const shift = this.speedHistory.shift();
             if (shift) sumDt -= shift.dt;
         }
-        sumDt = 0; 
-        for(const hist of this.speedHistory) {
-             sumSpeed += hist.speed * hist.dt;
-             sumDt += hist.dt;
+
+        let weightedSumSpeed = 0;
+        let sumWeights = 0;
+        let currentWindowPos = 0;
+        for(let i = 0; i < this.speedHistory.length; i++) {
+             const hist = this.speedHistory[i];
+             currentWindowPos += hist.dt;
+             const weight = currentWindowPos;
+             weightedSumSpeed += hist.speed * weight * hist.dt;
+             sumWeights += weight * hist.dt;
         }
-        const avgSpeedKmh = sumDt > 0 ? sumSpeed / sumDt : speedKmh;
+        const avgSpeedKmh = sumWeights > 0 ? weightedSumSpeed / sumWeights : speedKmh;
 
         // Auto pause
         if (avgSpeedKmh < 1.0) {
@@ -456,6 +462,7 @@ function App({ apiKey }: { apiKey: string }) {
     const [autoPaused, setAutoPaused] = useState(false);
     const [elapsed, setElapsed] = useState(0);
     const [distance, setDistance] = useState(0); 
+    const [isMilestonePulse, setIsMilestonePulse] = useState(false);
     const [currentSpeed, setCurrentSpeed] = useState(0); 
     const [accuracy, setAccuracy] = useState(0);
     const [gpsStatus, setGpsStatus] = useState("WAITING");
@@ -846,6 +853,8 @@ function App({ apiKey }: { apiKey: string }) {
                     const newKm = Math.floor(runDataRef.current.distance / 1000);
                     if (newKm > oldKm && newKm > 0) {
                         triggerVibration('MILESTONE');
+                        setIsMilestonePulse(true);
+                        setTimeout(() => setIsMilestonePulse(false), 800);
                     }
                     
                     // Always append coordinate path point securely
@@ -892,14 +901,16 @@ function App({ apiKey }: { apiKey: string }) {
             : [];
 
         if (finalDistance > 5 && user) { 
-            const runName = prompt("Excellent Session! Classify your run:", `Run ${new Date().toLocaleDateString()}`);
+            const activityLabel = workoutType === 'run' ? "Run" : "Walk";
+            const runName = prompt(`Excellent Session! Name your ${activityLabel}:`, `${activityLabel} ${new Date().toLocaleDateString()}`);
             const summary = { 
                 id: Date.now(), 
-                name: runName || "Afternoon Session",
+                name: runName || `${activityLabel} Session`,
                 timestamp: Date.now(), 
                 duration: finalElapsed, 
                 distance: finalDistance, 
                 pace: paceString,
+                type: workoutType,
                 coordinates: finalCoords
             };
             
@@ -1114,7 +1125,7 @@ function App({ apiKey }: { apiKey: string }) {
         ctx.fillStyle = '#8e8e93';
         ctx.fillText('CALORIES', 820, 690);
         ctx.fillStyle = '#ff9500'; // Apple orange energy
-        const computedBurn = Math.floor((lastSummary.distance / 1000) * 72 * 1.036);
+        const computedBurn = Math.floor((lastSummary.distance / 1000) * 72 * (lastSummary.type === 'walk' ? 0.53 : 1.036));
         ctx.fillText(`~${computedBurn} KCAL`, 820, 765);
 
         // Footer details
@@ -1320,7 +1331,7 @@ function App({ apiKey }: { apiKey: string }) {
                     {step < slides.length - 1 ? (
                         <button 
                             onClick={() => setStep(s => s + 1)}
-                            className="w-full py-4.5 bg-neutral-900 hover:bg-neutral-800 text-white border border-white/10 rounded-2xl font-bold text-sm active:scale-95 transition-all uppercase tracking-wider cursor-pointer"
+                            className="w-full py-4.5 bg-neutral-900 hover:bg-neutral-800 text-white border border-white/10 rounded-2xl font-bold text-sm skeuo-btn uppercase tracking-wider cursor-pointer"
                         >
                             Continue
                         </button>
@@ -1330,7 +1341,7 @@ function App({ apiKey }: { apiKey: string }) {
                                 id="google-login-btn"
                                 onClick={() => handleLogin(false)}
                                 disabled={isSigningIn}
-                                className="w-full py-4 bg-white text-slate-900 rounded-2xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-3 border border-slate-200 disabled:opacity-50 cursor-pointer"
+                                className="w-full py-4 bg-white text-slate-900 rounded-2xl font-bold text-sm skeuo-btn flex items-center justify-center gap-3 border border-slate-200 disabled:opacity-50 cursor-pointer"
                             >
                                 {isSigningIn ? (
                                     <>
@@ -1355,7 +1366,7 @@ function App({ apiKey }: { apiKey: string }) {
                                     id="google-redirect-btn"
                                     onClick={() => handleLogin(true)}
                                     disabled={isSigningIn}
-                                    className="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-3 border border-zinc-800 disabled:opacity-50 cursor-pointer hover:bg-zinc-800 duration-300"
+                                    className="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold text-sm skeuo-btn flex items-center justify-center gap-3 border border-zinc-800 disabled:opacity-50 cursor-pointer hover:bg-zinc-800 duration-300"
                                 >
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                         <path d="M5 12h14M12 5l7 7-7 7" />
@@ -1368,7 +1379,7 @@ function App({ apiKey }: { apiKey: string }) {
                                 id="onboarding-guest-btn"
                                 onClick={handleGuestLogin}
                                 disabled={isSigningIn}
-                                className="w-full py-4 bg-[#34c759] text-white rounded-2xl font-bold text-sm active:scale-95 transition-all uppercase tracking-wider hover:bg-emerald-500 duration-300 disabled:opacity-50 cursor-pointer"
+                                className="w-full py-4 bg-[#34c759] text-white rounded-2xl font-bold text-sm skeuo-btn uppercase tracking-wider hover:bg-emerald-500 duration-300 disabled:opacity-50 cursor-pointer"
                             >
                                 {isSigningIn ? "Signing In..." : "GET STARTED"}
                             </button>
@@ -1405,7 +1416,7 @@ function App({ apiKey }: { apiKey: string }) {
         const avgPaceString = getTotalAvgPace();
 
         // Calculate actual total calories burnt across all runs
-        const totalCalories = Math.floor(runs.reduce((sum, run) => sum + (((run.distance || 0) / 1000) * 72 * 1.036), 0));
+        const totalCalories = Math.floor(runs.reduce((sum, run) => sum + (((run.distance || 0) / 1000) * 72 * (run.type === 'walk' ? 0.53 : 1.036)), 0));
 
         // Group runs by days of current week (Monday - Sunday) to construct an authentic status chart
         const getWeeklyActivity = () => {
@@ -1460,18 +1471,18 @@ function App({ apiKey }: { apiKey: string }) {
                 </header>
 
                 {/* Daily Water Intake Tracker */}
-                <div className="mb-6 bg-white rounded-3xl p-5 border border-slate-100 flex items-center shadow-sm">
+                <div className="mb-6 skeuo-element p-5 flex items-center shadow-sm">
                     <div className="flex-1">
                         <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-1">HYDRATION</h3>
                         <p className="text-xs font-semibold text-slate-400 mb-4">Goal: 8 Glasses</p>
                         <div className="flex gap-2 isolate">
                            <button 
                                onClick={() => setWaterIntake(Math.max(0, waterIntake - 1))}
-                               className="w-10 h-10 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center font-black active:scale-95 transition-all text-xl"
+                               className="w-10 h-10 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center font-black skeuo-btn text-xl"
                            >-</button>
                            <button 
                                onClick={() => setWaterIntake(Math.max(0, waterIntake + 1))}
-                               className="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center font-black active:scale-95 transition-all text-xl shadow-md shadow-blue-500/20"
+                               className="w-10 h-10 rounded-xl bg-blue-500 text-white flex items-center justify-center font-black skeuo-btn text-xl shadow-md shadow-blue-500/20"
                            >+</button>
                         </div>
                     </div>
@@ -1497,7 +1508,7 @@ function App({ apiKey }: { apiKey: string }) {
                 </div>
 
                 {/* AI Briefing Segment */}
-                <div className="mb-6 p-5 bg-white rounded-3xl border border-slate-100 flex items-start gap-4">
+                <div className="mb-6 p-5 skeuo-element flex items-start gap-4">
                     <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex-shrink-0 flex items-center justify-center">
                         <Zap size={18} className="text-[#34c759]" fill="#34c759" />
                     </div>
@@ -1556,7 +1567,7 @@ function App({ apiKey }: { apiKey: string }) {
                 </div>
 
                 {/* This Week minimalist green vertical bar chart */}
-                <div className="mb-6 p-5 bg-white rounded-3xl border border-slate-100">
+                <div className="mb-6 p-5 skeuo-element">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">THIS WEEK LIVE</h3>
                         <span className="text-xs font-semibold text-[#34c759] hover:underline cursor-pointer">Stats Real Only</span>
@@ -1588,15 +1599,17 @@ function App({ apiKey }: { apiKey: string }) {
 
                 {/* Recent Activities styled inside beautifully rounded white cards */}
                 <div className="mb-24">
-                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3">RECENT RUNS</h3>
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3">RECENT WORKOUTS</h3>
                     <div className="space-y-3">
                         {runs.length > 0 ? runs.slice(0, 3).map(run => (
-                            <div key={run.id} className="p-4 bg-white rounded-2xl border border-slate-100 flex justify-between items-center">
+                            <div key={run.id} className="p-4 skeuo-element flex justify-between items-center">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center border border-green-100">
-                                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#34c759" strokeWidth="3">
-                                            <path d="M5 12h14M12 5l7 7-7 7" />
-                                        </svg>
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${run.type === 'walk' ? 'bg-blue-50 border-blue-100' : 'bg-green-50 border-green-100'}`}>
+                                        {run.type === 'walk' ? (
+                                            <Navigation size={18} className="text-[#007aff]" />
+                                        ) : (
+                                            <Flame size={18} className="text-[#34c759]" />
+                                        )}
                                     </div>
                                     <div>
                                         <p className="font-bold text-slate-900 text-sm">{run.name}</p>
@@ -1609,12 +1622,12 @@ function App({ apiKey }: { apiKey: string }) {
                                     <p className="font-extrabold text-slate-900 text-sm">
                                         {run.distance < 1000 ? `${Math.floor(run.distance)}m` : `${(run.distance / 1000).toFixed(2)}km`}
                                     </p>
-                                    <p className="text-[10px] font-bold text-[#34c759] mt-0.5">{run.pace}</p>
+                                    <p className={`text-[10px] font-bold mt-0.5 ${run.type === 'walk' ? 'text-[#007aff]' : 'text-[#34c759]'}`}>{run.pace}</p>
                                 </div>
                             </div>
                         )) : (
                             <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-slate-200">
-                                <p className="text-slate-500 font-bold text-sm mb-1 text-slate-800">Start your first run</p>
+                                <p className="text-slate-500 font-bold text-sm mb-1 text-slate-800">Start your first workout</p>
                                 <p className="text-slate-400 font-semibold text-xs leading-normal max-w-xs mx-auto">Your workout records, calories burned, pace metrics, and GPS route shape will appear here.</p>
                             </div>
                         )}
@@ -1662,7 +1675,7 @@ function App({ apiKey }: { apiKey: string }) {
                 </div>
 
                 {/* This Week schedule Checklist */}
-                <div className="p-5 bg-white rounded-3xl border border-slate-100">
+                <div className="p-5 skeuo-element">
                     <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-5">This Week</h3>
                     <div className="space-y-4">
                         <div className="flex items-center justify-between pb-3 border-b border-slate-50">
@@ -1735,7 +1748,7 @@ function App({ apiKey }: { apiKey: string }) {
                     </div>
                 </header>
 
-                <div className="p-6 bg-white rounded-3xl border border-slate-100 text-center mb-6">
+                <div className="p-6 skeuo-element text-center mb-6">
                     <p className="text-[10px] font-bold tracking-widest text-[#34c759] uppercase">TARGET DISTANCE</p>
                     <h2 className="text-6xl font-display font-black text-slate-900 tracking-tighter mt-1 mb-6 drop-shadow-[0_2px_10px_rgba(0,0,0,0.05)]">0.00 <span className="text-xl font-bold text-slate-400">km</span></h2>
                     
@@ -1756,7 +1769,7 @@ function App({ apiKey }: { apiKey: string }) {
                 </div>
 
                 {/* Concentric Circle Radar decoration */}
-                <div className="relative flex flex-col items-center justify-center p-8 bg-white border border-slate-100 rounded-3xl mb-8 overflow-hidden h-44">
+                <div className="relative flex flex-col items-center justify-center p-8 skeuo-element rounded-3xl mb-8 overflow-hidden h-44">
                     <div className="absolute inset-0 bg-[#34c759]/5 pointer-events-none"></div>
                     <div className="w-28 h-28 rounded-full border border-green-200/30 flex items-center justify-center relative">
                         <div className="w-20 h-20 rounded-full border border-green-200/50 flex items-center justify-center">
@@ -1771,16 +1784,16 @@ function App({ apiKey }: { apiKey: string }) {
 
                 {/* Mode Selector (Walk vs Run) */}
                 <div className="flex justify-center mb-6">
-                    <div className="flex bg-slate-100 p-1.5 rounded-full shadow-inner border border-slate-200/50">
+                    <div className="flex skeuo-element p-1.5 rounded-full">
                         <button 
                             onClick={() => { setWorkoutType('run'); triggerVibration(50); }}
-                            className={`px-8 py-2.5 rounded-full font-black text-sm transition-all duration-300 ${workoutType === 'run' ? 'bg-white shadow-sm text-[#34c759]' : 'text-slate-400 hover:text-slate-600'}`}
+                            className={`px-8 py-2.5 rounded-full font-black text-sm transition-all duration-300 ${workoutType === 'run' ? 'skeuo-element-pressed text-[#34c759]' : 'text-slate-400 hover:text-slate-600'}`}
                         >
                             RUN
                         </button>
                         <button 
                             onClick={() => { setWorkoutType('walk'); triggerVibration(50); }}
-                            className={`px-8 py-2.5 rounded-full font-black text-sm transition-all duration-300 ${workoutType === 'walk' ? 'bg-white shadow-sm text-[#007aff]' : 'text-slate-400 hover:text-slate-600'}`}
+                            className={`px-8 py-2.5 rounded-full font-black text-sm transition-all duration-300 ${workoutType === 'walk' ? 'skeuo-element-pressed text-[#007aff]' : 'text-slate-400 hover:text-slate-600'}`}
                         >
                             WALK
                         </button>
@@ -1792,7 +1805,7 @@ function App({ apiKey }: { apiKey: string }) {
                     <button 
                         id="gps-prep-start-btn"
                         onClick={() => { setView('run'); startRun(); }}
-                        className={`w-28 h-28 text-white font-black rounded-full border-4 border-white shadow-xl flex flex-col items-center justify-center active:scale-90 transition-all cursor-pointer duration-300 ${workoutType === 'run' ? 'bg-[#34c759] hover:bg-emerald-500' : 'bg-[#007aff] hover:bg-blue-600'}`}
+                        className={`w-28 h-28 text-white font-black rounded-full border-4 skeuo-btn shadow-xl flex flex-col items-center justify-center cursor-pointer duration-300 ${workoutType === 'run' ? 'bg-[#34c759]' : 'bg-[#007aff]'} ${darkMode ? 'border-neutral-800 focus:outline-none' : 'border-[#e0e5ec]'}`}
                     >
                         <span className="text-sm tracking-widest font-black uppercase text-glow">START</span>
                     </button>
@@ -1921,7 +1934,7 @@ function App({ apiKey }: { apiKey: string }) {
                 </div>
 
                 {/* Metric Summary Column details */}
-                <div className="p-5 bg-white rounded-3xl border border-slate-100 mb-6">
+                <div className="p-5 skeuo-element mb-6">
                     <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">DISTANCE THIS MONTH</p>
                     <h2 className="text-4xl font-extrabold text-slate-900 mt-1 mb-1">{currentMonthDist.toFixed(1)} <span className="text-lg font-medium text-slate-500">km</span></h2>
                     <p className="text-[10px] font-bold text-[#34c759]">
@@ -1960,7 +1973,7 @@ function App({ apiKey }: { apiKey: string }) {
                         {achievementsList.map((badge, i) => (
                             <div 
                                 key={i} 
-                                className={`bg-white p-4 rounded-2xl border border-slate-100 flex-shrink-0 text-center w-28 shadow-sm transition-all duration-300 ${badge.unlocked ? "opacity-100 scale-100" : "opacity-40 scale-95"}`}
+                                className={`skeuo-element p-4 flex-shrink-0 text-center w-28 shadow-sm transition-all duration-300 ${badge.unlocked ? "opacity-100 scale-100" : "opacity-40 scale-95"}`}
                             >
                                 <div className={`w-12 h-12 rounded-full mx-auto bg-gradient-to-br ${badge.unlocked ? badge.color : "from-slate-300 to-slate-400"} flex items-center justify-center p-2 shadow-sm relative`}>
                                     <Trophy size={18} color="white" />
@@ -1977,7 +1990,7 @@ function App({ apiKey }: { apiKey: string }) {
                 </div>
 
                 {/* Personal records segment table */}
-                <div className="mb-6 p-5 bg-white rounded-3xl border border-slate-100">
+                <div className="mb-6 p-5 skeuo-element">
                     <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">PERSONAL RECORDS</h3>
                     <div className="space-y-3">
                         <div className="flex justify-between items-center pb-2.5 border-b border-slate-50">
@@ -2024,7 +2037,7 @@ function App({ apiKey }: { apiKey: string }) {
                 </header>
 
                 {/* Profile banner metadata detail */}
-                <div id="more-profile-card" className="p-6 bg-white rounded-3xl border border-slate-100 flex items-center gap-4 mb-6 relative overflow-hidden">
+                <div id="more-profile-card" className="p-6 skeuo-element flex items-center gap-4 mb-6 relative overflow-hidden">
                     <label className="relative block w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center cursor-pointer overflow-hidden flex-shrink-0 border border-slate-200">
                         {userData?.profilePic ? (
                             <img src={userData.profilePic} alt="Profile" className="w-full h-full object-cover" />
@@ -2064,14 +2077,14 @@ function App({ apiKey }: { apiKey: string }) {
 
                 {/* Diagnostic box output */}
                 {aiWorkout && (
-                    <div className="p-5 bg-white border border-slate-100 rounded-2xl mb-6 shadow-sm">
+                    <div className="p-5 skeuo-element mb-6 shadow-sm">
                         <p className="text-[10px] font-bold text-indigo-600 tracking-wider mb-2">GENERATED PLAN</p>
                         <pre className="whitespace-pre-wrap font-sans text-xs text-slate-700 leading-relaxed font-semibold">{aiWorkout}</pre>
                     </div>
                 )}
 
                 {/* Settings menu list items with chevron pointers */}
-                <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden mb-6">
+                <div className="skeuo-element overflow-hidden mb-6">
                     <div 
                         id="menu-btn-profile"
                         onClick={() => setView('profile')} 
@@ -2368,26 +2381,30 @@ function App({ apiKey }: { apiKey: string }) {
                         </header>
                         
                         <div className="grid grid-cols-2 gap-4 mb-4">
-                            <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden">
-                                <p className="text-[9px] font-bold text-[#34c759] uppercase tracking-wider">TOTAL DISTANCE</p>
+                            <div className="p-5 skeuo-element shadow-sm relative overflow-hidden">
+                                <p className={`text-[9px] font-bold ${lastSummary.type === 'walk' ? 'text-[#007aff]' : 'text-[#34c759]'} uppercase tracking-wider flex items-center gap-1`}>
+                                    {lastSummary.type === 'walk' ? <Navigation size={10} /> : <Flame size={10} />} DISTANCE
+                                </p>
                                 <p className="text-3xl font-extrabold text-slate-900 mt-1">
                                     {lastSummary.distance < 1000 ? `${Math.floor(lastSummary.distance)}m` : `${(lastSummary.distance/1000).toFixed(2)}km`}
                                 </p>
                             </div>
-                            <div className="p-5 bg-[#34c759] text-white rounded-3xl shadow-sm relative overflow-hidden">
-                                <p className="text-[9px] font-bold text-white/80 uppercase tracking-wider font-sans">DURATION</p>
+                            <div className={`p-5 text-white rounded-3xl shadow-sm relative overflow-hidden ${lastSummary.type === 'walk' ? 'bg-[#007aff]' : 'bg-[#34c759]'}`}>
+                                <p className="text-[9px] font-bold text-white/80 uppercase tracking-wider font-sans flex items-center gap-1">
+                                    <Clock size={10} /> DURATION
+                                </p>
                                 <p className="text-3xl font-extrabold mt-1">{formatTime(lastSummary.duration)}</p>
                             </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4 mb-6">
-                            <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm">
+                            <div className="p-5 skeuo-element shadow-sm">
                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">AVERAGE PACE</p>
                                 <p className="text-2xl font-black text-slate-900 mt-1">{lastSummary.pace}</p>
                             </div>
-                            <div className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm">
+                            <div className="p-5 skeuo-element shadow-sm">
                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">CALORIES BURNT</p>
-                                <p className="text-2xl font-black text-slate-900 mt-1">~{Math.floor((lastSummary.distance/1000) * 72 * 1.036)} kcal</p>
+                                <p className="text-2xl font-black text-slate-900 mt-1">~{Math.floor((lastSummary.distance/1000) * 72 * (lastSummary.type === 'walk' ? 0.53 : 1.036))} kcal</p>
                             </div>
                         </div>
 
@@ -2400,7 +2417,7 @@ function App({ apiKey }: { apiKey: string }) {
                                 id="stop-run-analyze-btn"
                                 onClick={fetchAnalysis} 
                                 disabled={isAnalysisLoading} 
-                                className="py-4 bg-[#1c1c1e] text-white rounded-2xl font-bold text-xs uppercase tracking-wider flex justify-center items-center gap-1.5 disabled:opacity-70 active:scale-95 transition-all"
+                                className="py-4 bg-[#1c1c1e] text-white rounded-2xl font-bold text-xs uppercase tracking-wider flex justify-center items-center gap-1.5 disabled:opacity-70 skeuo-btn"
                             >
                                 {isAnalysisLoading ? <Loader2 className="animate-spin text-white" size={14}/> : <><Activity size={14} color="white"/> Diagnose Performance</>}
                             </button>
@@ -2559,7 +2576,7 @@ function App({ apiKey }: { apiKey: string }) {
                 </div>
 
                 {/* HIGH-FIDELITY ROUNDED iOS CONTROL BOTTOM SHEET CARD */}
-                <div id="workout-dashboard-card" className={`relative z-20 ${darkMode ? 'bg-[#1c1c1e] text-white' : 'bg-white text-[#1c1c1e]'} rounded-t-[2.5rem] p-6 pb-12 shadow-[0_-15px_40px_rgba(0,0,0,0.15)] flex flex-col justify-between`} style={{ height: "58%" }}>
+                <div id="workout-dashboard-card" className={`relative z-20 ${darkMode ? 'bg-[#2b2b2c] text-white' : 'bg-[#e0e5ec] text-[#1c1c1e]'} rounded-t-[2.5rem] p-6 pb-12 shadow-[0_-15px_40px_rgba(0,0,0,0.15)] flex flex-col justify-between`} style={{ height: "58%" }}>
                     
                     {/* Top sliding drag handle indicator */}
                     <div className="w-12 h-1 bg-neutral-600/30 rounded-full mx-auto mb-4" />
@@ -2567,79 +2584,54 @@ function App({ apiKey }: { apiKey: string }) {
                     <div className="flex-1 flex flex-col justify-between">
                         
                         {/* PRIMARY STATS ROW (Distance & Current Pace) */}
-                        <div className="flex justify-between items-baseline border-b border-neutral-600/10 pb-5">
-                            <div>
-                                <p className={`text-[10px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest flex items-center gap-1`}>
-                                    {workoutType === 'run' ? <Flame size={12} className="text-[#34c759]" /> : <Navigation size={12} className="text-[#007aff]" />}
-                                    {workoutType === 'run' ? 'RUN DISTANCE' : 'WALK DISTANCE'}
-                                </p>
-                                <div className="flex items-baseline gap-1 mt-1">
-                                    <h1 className={`text-6xl font-black tracking-tighter tabular-nums leading-none ${workoutType === 'run' ? 'text-slate-900' : 'text-[#007aff]'}`}>
-                                        <span className={darkMode ? 'text-white' : ''}>{displayDistance}</span>
-                                    </h1>
-                                    <span className="text-xl font-bold uppercase text-slate-400 font-sans">{displayUnit}</span>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <p className={`text-[10px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>PACE</p>
-                                <h2 className="text-4xl font-black mt-1 tabular-nums leading-none tracking-tight">
-                                    {formatCurrentPace(currentSpeed)} <span className="text-sm font-bold text-slate-400 block -translate-y-1">/km</span>
-                                </h2>
+                        <div className={`flex flex-col items-center justify-center border-b border-neutral-600/10 pb-6 mb-4 mt-2 ${isMilestonePulse ? 'milestone-animate' : ''}`}>
+                            <p className={`text-[11px] font-black ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-[0.2em] flex items-center gap-1.5 mb-2`}>
+                                {workoutType === 'run' ? <Flame size={14} className="text-[#34c759] realistic-icon" /> : <Navigation size={14} className="text-[#007aff] realistic-icon" />}
+                                {workoutType === 'run' ? 'RUN DISTANCE' : 'WALK DISTANCE'}
+                            </p>
+                            <div className="flex items-baseline gap-1.5 justify-center">
+                                <h1 className={`text-[5.5rem] font-black tracking-tighter tabular-nums leading-none ${workoutType === 'run' ? (darkMode ? 'text-white' : 'text-slate-900') : 'text-[#007aff]'} skeuo-element-pressed rounded-3xl px-6 py-4`}>
+                                    {displayDistance}
+                                </h1>
+                                <span className={`text-2xl font-bold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'} font-sans block mb-3`}>{displayUnit}</span>
                             </div>
                         </div>
 
-                        {/* SECONDARY STATS ROW (Duration, Calories, Speed Bento-Grid) */}
-                        <div className="grid grid-cols-3 gap-3 border-b border-neutral-600/10 py-5">
-                            <div>
-                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>DURATION</p>
-                                <p className="text-xl font-extrabold mt-1.5 tabular-nums leading-none">
+                        {/* SECONDARY STATS GRID */}
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-6 pb-6">
+                            <div className={`p-4 rounded-3xl skeuo-element flex flex-col items-center justify-center ${isMilestonePulse ? 'milestone-animate' : ''}`}>
+                                <p className={`text-[10px] font-black ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1`}>PACE</p>
+                                <h2 className={`text-4xl font-black tabular-nums leading-none tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'} skeuo-element-pressed rounded-2xl px-5 py-3 mt-1`}>
+                                    {formatCurrentPace(currentSpeed)} <span className="text-base font-bold text-slate-400">/km</span>
+                                </h2>
+                            </div>
+                            <div className={`p-4 rounded-3xl skeuo-element flex flex-col items-center justify-center`}>
+                                <p className={`text-[10px] font-black ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1`}>TIME</p>
+                                <p className={`text-4xl font-black tabular-nums leading-none tracking-tight ${darkMode ? 'text-white' : 'text-slate-900'} skeuo-element-pressed rounded-2xl px-5 py-3 mt-1`}>
                                     {formatTime(elapsed)}
                                 </p>
                             </div>
-                            <div>
-                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>CALORIES</p>
-                                <p className="text-xl font-extrabold mt-1.5 tabular-nums leading-none">
-                                    {Math.max(0, Math.floor((distance / 1000) * 72 * 1.036))} <span className="text-[10px] font-semibold text-slate-400">kcal</span>
+                        </div>
+
+                        {/* TERTIARY DETAIL STATS ROW (Calories, Speed, Elevation) */}
+                        <div className="grid grid-cols-3 gap-2 pb-6">
+                            <div className="text-center rounded-2xl skeuo-element p-2">
+                                <p className={`text-[9px] font-black ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1`}>CALORIES</p>
+                                <p className="text-xl font-bold tabular-nums">
+                                    {workoutType === 'walk' ? Math.max(0, Math.floor((distance / 1000) * 72 * 0.53)) : Math.max(0, Math.floor((distance / 1000) * 72 * 1.036))} <span className="text-[10px] font-semibold text-slate-400">cal</span>
                                 </p>
                             </div>
-                            <div>
-                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest`}>CURRENT SPEED</p>
-                                <p className="text-xl font-extrabold mt-1.5 tabular-nums text-[#34c759] leading-none">
+                            <div className="text-center rounded-2xl skeuo-element p-2">
+                                <p className={`text-[9px] font-black ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1`}>SPEED</p>
+                                <p className="text-xl font-bold tabular-nums text-[#34c759]">
                                     {distance > 0 && elapsed > 0 ? ((distance / Math.max(1, elapsed)) * 3.6).toFixed(1) : "0.0"} <span className="text-[10px] font-semibold text-slate-400">km/h</span>
                                 </p>
                             </div>
-                        </div>
-
-                        {/* TERTIARY DETAIL STATS ROW (Elevation, Steps, Splits) */}
-                        <div className="grid grid-cols-3 gap-3 pt-5 pb-6">
-                            {/* Elevation ascent/descent calculations */}
-                            <div>
-                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1.5`}>ELEVATION</p>
-                                <div className="text-xs font-bold font-sans flex flex-col gap-0.5">
-                                    <span className="text-[#34c759] flex items-center">↑ {Math.max(0, Math.floor(distance * 0.006) + (distance > 10 ? 5 : 0))} m</span>
-                                    <span className="text-red-500 flex items-center">↓ {Math.max(0, Math.floor(distance * 0.005) + (distance > 10 ? 3 : 0))} m</span>
-                                </div>
-                            </div>
-                            
-                            {/* Accurate Steps counting */}
-                            <div>
-                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1.5`}>STEPS</p>
-                                <p className="text-base font-extrabold tabular-nums">
-                                    {Math.floor(distance * 1.35).toLocaleString()}
+                            <div className="text-center">
+                                <p className={`text-[9px] font-black ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1`}>ELEVATION</p>
+                                <p className="text-xl font-bold tabular-nums flex items-center justify-center gap-1">
+                                    <span className="text-[#34c759]">↑{Math.max(0, Math.floor(distance * 0.006) + (distance > 10 ? 5 : 0))}m</span>
                                 </p>
-                            </div>
-
-                            {/* Live Segment splits tracking list */}
-                            <div>
-                                <p className={`text-[9px] font-extrabold ${darkMode ? 'text-neutral-400' : 'text-slate-500'} uppercase tracking-widest mb-1`}>SPLITS</p>
-                                <div className="flex flex-col gap-0.5 text-[10px] font-semibold font-mono text-slate-400 leading-tight">
-                                    {getSplitsList().slice(0, 2).map((item, idx) => (
-                                        <div key={idx} className="flex justify-between">
-                                            <span>KM {item.km}</span>
-                                            <span className={darkMode ? 'text-white' : 'text-slate-900'}>{item.pace}</span>
-                                        </div>
-                                    ))}
-                                </div>
                             </div>
                         </div>
 
@@ -2651,7 +2643,7 @@ function App({ apiKey }: { apiKey: string }) {
                         <button 
                             id="run-active-stop-btn-pill"
                             onClick={stopRun} 
-                            className="flex-1 py-4.5 rounded-2xl font-black text-sm uppercase tracking-wider text-center active:scale-95 transition-all cursor-pointer shadow-sm bg-[#8e8e93]/15 text-red-500 hover:bg-[#8e8e93]/25"
+                            className="flex-1 py-4.5 rounded-2xl skeuo-element skeuo-btn font-black text-sm uppercase tracking-wider text-center cursor-pointer text-red-500"
                         >
                             STOP
                         </button>
@@ -2660,7 +2652,7 @@ function App({ apiKey }: { apiKey: string }) {
                         <button 
                             id="run-active-pause-btn-pill"
                             onClick={togglePause} 
-                            className={`flex-[2] py-4.5 text-white rounded-2xl font-black text-sm uppercase tracking-wider text-center active:scale-95 transition-all cursor-pointer shadow-md ${workoutType === 'run' ? 'bg-[#34c759] hover:bg-emerald-500' : 'bg-[#007aff] hover:bg-blue-600'}`}
+                            className={`flex-[2] py-4.5 rounded-2xl skeuo-element skeuo-btn font-black text-sm uppercase tracking-wider text-center cursor-pointer ${workoutType === 'run' ? 'text-[#34c759]' : 'text-[#007aff]'}`}
                         >
                             {isPaused ? "RESUME" : "PAUSE"}
                         </button>
@@ -2676,7 +2668,7 @@ function App({ apiKey }: { apiKey: string }) {
         <div id="profile-view" className="absolute inset-0 px-6 pt-6 overflow-y-auto custom-scroll w-full h-full">
             <IndianClock />
             <header className="flex items-center gap-4 mb-8 mt-4">
-                <button id="profile-back-btn" onClick={() => setView('more')} className="p-3 bg-white border border-slate-100 rounded-2xl active:scale-95 transition-transform"><ChevronLeft size={18} color={darkMode ? "#ffffff" : "#1c1c1e"}/></button>
+                <button id="profile-back-btn" onClick={() => setView('more')} className="p-3 skeuo-element skeuo-btn"><ChevronLeft size={18} color={darkMode ? "#ffffff" : "#1c1c1e"}/></button>
                 <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Edit Profile</h1>
             </header>
 
@@ -2694,7 +2686,7 @@ function App({ apiKey }: { apiKey: string }) {
                 </label>
 
                 <div className="w-full space-y-4">
-                    <div className="p-4 bg-white rounded-2xl border border-slate-100">
+                    <div className="p-4 skeuo-element">
                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">NAME</span>
                         <input 
                             id="profile-name-textbox"
@@ -2725,7 +2717,7 @@ function App({ apiKey }: { apiKey: string }) {
                         />
                     </div>
                     
-                    <div className="p-4 bg-white rounded-2xl border border-slate-100">
+                    <div className="p-4 skeuo-element">
                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block">EMAIL</span>
                         <p className="text-sm font-bold text-slate-500 mt-1 truncate">{user?.email}</p>
                     </div>
@@ -2737,7 +2729,7 @@ function App({ apiKey }: { apiKey: string }) {
     const Privacy = () => (
         <div id="privacy-policy-view" className="fixed inset-0 z-[100] bg-slate-50 text-slate-900 flex flex-col w-full h-full">
             <header className="px-5 pt-16 pb-4 border-b border-slate-100 bg-white flex items-center justify-between sticky top-0 z-10">
-                <button id="privacy-back-btn" onClick={() => setView('more')} className="p-3 bg-[#e3e3e9] rounded-2xl active:scale-95 transition-transform"><ChevronLeft size={18} color={darkMode ? "#ffffff" : "#1c1c1e"}/></button>
+                <button id="privacy-back-btn" onClick={() => setView('more')} className="p-3 bg-[#e3e3e9] rounded-2xl skeuo-btn"><ChevronLeft size={18} color={darkMode ? "#ffffff" : "#1c1c1e"}/></button>
                 <h3 className="text-lg font-extrabold tracking-tight text-slate-800">Telemetry Privacy</h3>
                 <div className="w-10"></div>
             </header>
@@ -2772,7 +2764,7 @@ function App({ apiKey }: { apiKey: string }) {
     ];
 
     return (
-        <div id="device-screen-wrapper" className="fixed inset-0 w-full h-full bg-[#f2f2f7] overflow-hidden">
+        <div id="device-screen-wrapper" className="fixed inset-0 w-full h-full skeuo-bg overflow-hidden">
             <>
                 {view === 'splash' && <Splash key="splash" />}
                 {view === 'home' && <Home key="home" />}
@@ -2798,9 +2790,9 @@ function App({ apiKey }: { apiKey: string }) {
                                     key={item.id}
                                     id={`nav-item-btn-${item.id}`}
                                     onClick={() => setView(item.id)} 
-                                    className={`nav-item ${isCurrent ? 'active' : 'hover:bg-slate-50'}`}
+                                    className={`nav-item skeuo-btn ${isCurrent ? 'active' : 'hover:bg-slate-50'}`}
                                 >
-                                    <IconComp size={20} color={isCurrent ? 'white' : '#8e8e93'} />
+                                    <IconComp size={20} color={isCurrent ? 'white' : '#8e8e93'} className="realistic-icon" />
                                     <span className={`text-[8px] font-bold mt-1 uppercase tracking-wider ${isCurrent ? 'text-white font-extrabold' : 'text-[#8e8e93]'}`}>{item.label}</span>
                                 </button>
                             );

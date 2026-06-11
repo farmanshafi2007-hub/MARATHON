@@ -10,6 +10,64 @@
   --color-neonCyan: #22d3ee;
 }
 
+/* SKEUOMORPHIC THEME STYLES */
+.skeuo-bg {
+    background-color: #e0e5ec !important;
+}
+.dark .skeuo-bg {
+    background-color: #2b2b2c !important;
+}
+
+.skeuo-element {
+    background-color: #e0e5ec;
+    box-shadow: 9px 9px 16px rgba(163,177,198,0.6), -9px -9px 16px rgba(255,255,255, 0.5);
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 1.5rem;
+}
+.dark .skeuo-element {
+    background-color: #2b2b2c;
+    box-shadow: 6px 6px 12px rgba(0,0,0,0.6), -6px -6px 12px rgba(255,255,255, 0.05);
+    border: 1px solid rgba(255,255,255,0.05);
+}
+
+.skeuo-element-pressed {
+    background-color: #e0e5ec;
+    box-shadow: inset 6px 6px 10px 0 rgba(163,177,198, 0.7), inset -6px -6px 10px 0 rgba(255,255,255, 0.8);
+    border-radius: 1.5rem;
+}
+.dark .skeuo-element-pressed {
+    background-color: #2b2b2c;
+    box-shadow: inset 5px 5px 10px rgba(0,0,0,0.6), inset -5px -5px 10px rgba(255,255,255, 0.05);
+}
+
+.skeuo-indicator {
+    box-shadow: inset 2px 2px 5px rgba(0,0,0,0.4), inset -2px -2px 5px rgba(255,255,255,0.4);
+}
+
+.skeuo-btn {
+    transition: all 0.2s ease-in-out;
+}
+.skeuo-btn:active {
+    box-shadow: inset 4px 4px 8px rgba(163,177,198,0.8), inset -4px -4px 8px rgba(255,255,255,0.8) !important;
+}
+.dark .skeuo-btn:active {
+    box-shadow: inset 4px 4px 8px rgba(0,0,0,0.8), inset -4px -4px 8px rgba(255,255,255,0.05) !important;
+}
+
+.realistic-icon {
+    filter: drop-shadow(2px 4px 4px rgba(0,0,0,0.3));
+}
+
+@keyframes milestone-pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.15); color: #34c759; text-shadow: 0 0 20px #34c759; }
+    100% { transform: scale(1); }
+}
+
+.milestone-animate {
+    animation: milestone-pulse 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
 /* CRITICAL: Lock the screen to prevent jumping up and down */
 body, html {
     font-family: 'Inter', sans-serif;
@@ -71,10 +129,10 @@ body, html {
 }
 
 .nav-pill {
-    background-color: rgba(255, 255, 255, 0.88);
+    background-color: #e0e5ec !important;
     backdrop-filter: blur(20px);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 6px 6px 12px rgba(163,177,198,0.6), -6px -6px 12px rgba(255,255,255, 0.5);
     border-radius: 2rem;
     padding: 6px;
     display: flex;
@@ -357,9 +415,9 @@ body, html {
 
 /* Premium bottom dock navigation tab overrides */
 .dark .nav-pill {
-    background-color: rgba(28, 28, 30, 0.9) !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8) !important;
+    background-color: #2b2b2c !important;
+    border-color: rgba(255, 255, 255, 0.05) !important;
+    box-shadow: 6px 6px 12px rgba(0, 0, 0, 0.8), -6px -6px 12px rgba(255, 255, 255, 0.05) !important;
 }
 
 .dark .nav-item:not(.active) {
