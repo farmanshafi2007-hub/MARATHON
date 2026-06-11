@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { initializeApp } from 'firebase/app';
 import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
-import { initializeFirestore } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 
 // Safely attempt to load firebase config using Vite's glob import to prevent build crashes on GitHub
 const configFiles = import.meta.glob('../firebase-applet-config.json', { eager: true });
@@ -20,9 +20,7 @@ try {
   if (firebaseConfig && firebaseConfig.projectId && firebaseConfig.apiKey) {
     app = initializeApp(firebaseConfig);
     
-    db = initializeFirestore(app, {
-      experimentalForceLongPolling: true,
-    }, (firebaseConfig as any).firestoreDatabaseId);
+    db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
     
     auth = getAuth(app);
     // Explicitly enforce local persistence for robust sessions
