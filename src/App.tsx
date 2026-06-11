@@ -424,6 +424,17 @@ export default function AppWrapper() {
   );
 }
 
+// ACTIVE APP VIEW (Running Counter screen)
+    const MapPanner = ({ isFollowCamera, runnerPt }: { isFollowCamera: boolean, runnerPt: { lat: number, lng: number }}) => {
+        const map = useMap();
+        useEffect(() => {
+            if (map && isFollowCamera && runnerPt) {
+                map.panTo(runnerPt);
+            }
+        }, [map, runnerPt.lat, runnerPt.lng, isFollowCamera]);
+        return null;
+    };
+
 function App({ apiKey }: { apiKey: string }) {
     // Global State matching Apple-style modular views: 'home', 'plan', 'run_tab', 'progress', 'more'
     const [view, setView] = useState('splash');
@@ -468,6 +479,23 @@ function App({ apiKey }: { apiKey: string }) {
     const [gpsStatus, setGpsStatus] = useState("WAITING");
     const [lastSummary, setLastSummary] = useState<any>(null);
     const [workoutType, setWorkoutType] = useState<'run' | 'walk'>('run');
+    // Run Hooks
+    const [isFollowCamera, setIsFollowCamera] = useState(true);
+    // Home Hooks
+    const [waterIntake, setWaterIntake] = useState(() => {
+            const saved = localStorage.getItem('daily_water_intake');
+            return saved ? parseInt(saved, 10) : 0;
+        });
+
+        useEffect(() => {
+            localStorage.setItem('daily_water_intake', waterIntake.toString());
+        }, [waterIntake]);
+    // Onboarding Hooks
+    const [step, setStep] = useState(0);
+    const [isSigningIn, setIsSigningIn] = useState(false);
+    const [authError, setAuthError] = useState<string | null>(null);
+    const [showRedirectOption, setShowRedirectOption] = useState(false);
+
 
     // AI States
     const [aiBriefing, setAiBriefing] = useState<string | null>(null);
@@ -1203,10 +1231,6 @@ function App({ apiKey }: { apiKey: string }) {
 
     // Apple Onboarding Login Card
     const Onboarding = () => {
-        const [step, setStep] = useState(0);
-        const [isSigningIn, setIsSigningIn] = useState(false);
-        const [authError, setAuthError] = useState<string | null>(null);
-        const [showRedirectOption, setShowRedirectOption] = useState(false);
 
         const handleLogin = async (useRedirect = false) => {
             setIsSigningIn(true);
@@ -1392,14 +1416,7 @@ function App({ apiKey }: { apiKey: string }) {
 
     // APPLE TAB 1: HOME DASHBOARD
     const Home = () => {
-        const [waterIntake, setWaterIntake] = useState(() => {
-            const saved = localStorage.getItem('daily_water_intake');
-            return saved ? parseInt(saved, 10) : 0;
-        });
-
-        useEffect(() => {
-            localStorage.setItem('daily_water_intake', waterIntake.toString());
-        }, [waterIntake]);
+        
 
         const totalDistanceVal = runs.reduce((sum, run) => sum + (run.distance || 0), 0) / 1000;
         const totalStreakVal = userData?.streak || 0;
@@ -2184,18 +2201,8 @@ function App({ apiKey }: { apiKey: string }) {
     };
 
     // ACTIVE APP VIEW (Running Counter screen)
-    const MapPanner = ({ isFollowCamera, runnerPt }: { isFollowCamera: boolean, runnerPt: { lat: number, lng: number }}) => {
-        const map = useMap();
-        useEffect(() => {
-            if (map && isFollowCamera && runnerPt) {
-                map.panTo(runnerPt);
-            }
-        }, [map, runnerPt.lat, runnerPt.lng, isFollowCamera]);
-        return null;
-    };
 
-    const Run = () => { 
-        const [isFollowCamera, setIsFollowCamera] = useState(true);
+    const Run = () => {
         const missionGoalMeters = 2500; 
         const displayDistance = distance < 1000 ? Math.floor(distance) : (distance / 1000).toFixed(2);
         const displayUnit = distance < 1000 ? "m" : "km";
@@ -2766,16 +2773,16 @@ function App({ apiKey }: { apiKey: string }) {
     return (
         <div id="device-screen-wrapper" className="fixed inset-0 w-full h-full skeuo-bg overflow-hidden">
             <>
-                {view === 'splash' && <Splash key="splash" />}
-                {view === 'home' && <Home key="home" />}
-                {view === 'plan' && <PlanView key="plan" />}
-                {view === 'run_tab' && <RunTab key="run_tab" />}
-                {view === 'progress' && <ProgressView key="progress" />}
-                {view === 'more' && <MoreView key="more" />}
-                {view === 'run' && <Run key="run" />}
-                {view === 'profile' && <Profile key="profile" />}
-                {view === 'privacy' && <Privacy key="privacy" />}
-                {view === 'onboarding' && <Onboarding key="onboarding" />}
+                {view === 'splash' && Splash()}
+                {view === 'home' && Home()}
+                {view === 'plan' && PlanView()}
+                {view === 'run_tab' && RunTab()}
+                {view === 'progress' && ProgressView()}
+                {view === 'more' && MoreView()}
+                {view === 'run' && Run()}
+                {view === 'profile' && Profile()}
+                {view === 'privacy' && Privacy()}
+                {view === 'onboarding' && Onboarding()}
             </>
 
             {['home', 'plan', 'run_tab', 'progress', 'more', 'profile'].includes(view) && (
