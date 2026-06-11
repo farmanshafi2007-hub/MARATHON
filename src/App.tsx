@@ -859,8 +859,19 @@ function App() {
     };
 
     // --- SHARED STATS CARD GENERATION (PREMIUM SOCIAL TEMPLATE) ---
-    const generateShareCard = () => {
+    const generateShareCard = async (photoFile?: File) => {
         if (!lastSummary) return;
+
+        let bgImage: HTMLImageElement | null = null;
+        if (photoFile) {
+            bgImage = new Image();
+            bgImage.src = URL.createObjectURL(photoFile);
+            await new Promise((resolve) => {
+                if (bgImage) {
+                    bgImage.onload = resolve;
+                }
+            });
+        }
 
         const canvas = document.createElement('canvas');
         canvas.width = 1080;
@@ -868,28 +879,53 @@ function App() {
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        // Elegant gradient layout background
-        const gradient = ctx.createLinearGradient(0, 0, 1080, 1080);
-        gradient.addColorStop(0, '#1c1c1e'); // Dark Charcoal
-        gradient.addColorStop(1, '#000000'); // iOS True Black
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, 1080, 1080);
+        if (bgImage) {
+            // Draw custom image cover
+            const canvasAspect = 1;
+            const imgAspect = bgImage.width / bgImage.height;
+            let drawWidth, drawHeight, offsetX, offsetY;
 
-        // Apple health visual grid circles
-        ctx.strokeStyle = 'rgba(52, 199, 89, 0.05)';
-        ctx.lineWidth = 2;
-        for (let r = 200; r <= 800; r += 150) {
+            if (imgAspect > canvasAspect) {
+                drawHeight = 1080;
+                drawWidth = 1080 * imgAspect;
+                offsetX = -(drawWidth - 1080) / 2;
+                offsetY = 0;
+            } else {
+                drawWidth = 1080;
+                drawHeight = 1080 / imgAspect;
+                offsetX = 0;
+                offsetY = -(drawHeight - 1080) / 2;
+            }
+
+            ctx.drawImage(bgImage, offsetX, offsetY, drawWidth, drawHeight);
+            
+            // Add a dark overlay so text is readable
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, 1080, 1080);
+        } else {
+            // Elegant gradient layout background
+            const gradient = ctx.createLinearGradient(0, 0, 1080, 1080);
+            gradient.addColorStop(0, '#1c1c1e'); // Dark Charcoal
+            gradient.addColorStop(1, '#000000'); // iOS True Black
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 1080, 1080);
+
+            // Apple health visual grid circles
+            ctx.strokeStyle = 'rgba(52, 199, 89, 0.05)';
+            ctx.lineWidth = 2;
+            for (let r = 200; r <= 800; r += 150) {
+                ctx.beginPath();
+                ctx.arc(540, 540, r, 0, 2 * Math.PI);
+                ctx.stroke();
+            }
+
+            // Circular Green Aesthetic Loop
+            ctx.strokeStyle = '#34c759';
+            ctx.lineWidth = 6;
             ctx.beginPath();
-            ctx.arc(540, 540, r, 0, 2 * Math.PI);
+            ctx.arc(540, 480, 120, -Math.PI / 2, Math.PI);
             ctx.stroke();
         }
-
-        // Circular Green Aesthetic Loop
-        ctx.strokeStyle = '#34c759';
-        ctx.lineWidth = 6;
-        ctx.beginPath();
-        ctx.arc(540, 480, 120, -Math.PI / 2, Math.PI);
-        ctx.stroke();
 
         ctx.textAlign = 'center';
         ctx.fillStyle = '#ffffff';
@@ -2214,13 +2250,30 @@ function App() {
                                 {isAnalysisLoading ? <Loader2 className="animate-spin text-white" size={14}/> : <><Activity size={14} color="white"/> Diagnose Performance</>}
                             </button>
 
-                            <button 
-                                id="stop-run-share-btn"
-                                onClick={generateShareCard}
-                                className="py-4 bg-[#34c759] text-white rounded-2xl font-bold text-xs uppercase tracking-wider flex justify-center items-center gap-1.5 transition-all active:scale-95"
-                            >
-                                <Upload size={14} className="rotate-180 text-white" /> Share Card
-                            </button>
+                            <div className="relative flex w-full">
+                                <button 
+                                    id="stop-run-share-btn"
+                                    onClick={() => generateShareCard()}
+                                    className="w-1/2 py-4 bg-[#34c759] text-white rounded-l-2xl font-bold text-xs uppercase tracking-wider flex justify-center items-center gap-1.5 transition-all outline-none"
+                                >
+                                    <Upload size={14} className="rotate-180 text-white" /> Share Card
+                                </button>
+                                <div className="w-[1px] bg-white/20 z-10"></div>
+                                <label className="w-1/2 py-4 bg-[#2dae4f] text-white rounded-r-2xl font-bold text-[10px] uppercase tracking-wider flex justify-center items-center gap-1 transition-all cursor-pointer hover:bg-[#289a46]">
+                                    <input 
+                                        type="file" 
+                                        accept="image/png, image/jpeg, image/jpg" 
+                                        className="hidden" 
+                                        onChange={(e) => {
+                                            if (e.target.files && e.target.files.length > 0) {
+                                                generateShareCard(e.target.files[0]);
+                                            }
+                                            e.target.value = '';
+                                        }}
+                                    />
+                                    + Photo
+                                </label>
+                            </div>
                         </div>
 
                         {aiAnalysis && (
