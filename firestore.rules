@@ -1,85 +1,44 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: dev_updates
-    // Document ID: {updateId}
-    // Fields:
-    //   - imageUrl: string (required)
-    //   - createdAt: timestamp (required)
-    //   - authorUid: string (required)
-    //
-    // Collection: users
-    // Document ID: {userId}
-    // Fields:
-    //   - name: string
-    //   - streak: number
-    //   - totalKm: number
-    //   - shields: number
-    //   - profilePic: string
-    //   - joined: timestamp
-    //
-    // ===============================================================
-
-    // Helper Functions
+    // Help Functions
     function isAuthenticated() {
       return request.auth != null;
     }
-
+    
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isAdmin() {
-      return isAuthenticated() && 
-        (request.auth.token.email == "farmanshafi2007@gmail.com" && request.auth.token.email_verified == true);
-    }
-
-    function isValidDevUpdate(data) {
-      return data.keys().hasAll(['imageUrl', 'createdAt', 'authorUid']) &&
-             data.imageUrl is string && data.imageUrl.size() < 1048576 && // Base64 can be large
-             data.createdAt is timestamp &&
-             data.authorUid == request.auth.uid;
-    }
-
-    function isValidUserProfile(data) {
-      return data.get('name', '') is string && data.get('name', '').size() < 100 &&
-             data.get('streak', 0) is number &&
-             data.get('totalKm', 0) is number &&
-             data.get('shields', 0) is number &&
-             data.get('email', '') is string &&
-             (data.get('profilePic', null) == null || (data.get('profilePic', '') is string && data.get('profilePic', '').size() < 1048576));
-    }
-
-    function isValidRun(data) {
-      return data.keys().hasAll(['id', 'name', 'timestamp', 'duration', 'distance', 'pace']) &&
-             data.id is number &&
-             data.name is string && data.name.size() < 100 &&
-             data.timestamp is number &&
-             data.duration is number &&
-             data.distance is number &&
-             data.pace is string;
-    }
-
-    // Rules
-    match /dev_updates/{updateId} {
-      allow read: if true; // Publicly viewable updates
-      allow create: if isAdmin() && isValidDevUpdate(request.resource.data);
-      allow delete: if isAdmin();
-    }
-
+    // 1. Users Collection
     match /users/{userId} {
-      allow read: if isOwner(userId);
-      allow write: if isOwner(userId) && isValidUserProfile(request.resource.data);
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+    
+    // 2. Activities Collection
+    match /activities/{activityId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      // Allow appending to likeCount via increments
+      allow update: if isAuthenticated() 
+                    && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount']));
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // 3. Likes Tracking Collection
+    match /likes/{likeId} {
+      allow read: if isAuthenticated();
       
-      match /runs/{runId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidRun(request.resource.data);
-      }
+      // The compound ID is `activityId_userId`. 
+      allow create: if isAuthenticated() 
+                    && request.resource.data.userId == request.auth.uid
+                    && likeId == request.resource.data.activityId + '_' + request.auth.uid;
+                    
+      allow delete: if isAuthenticated() 
+                    && resource.data.userId == request.auth.uid;
     }
   }
 }

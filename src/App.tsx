@@ -931,6 +931,7 @@ export default function App() {
             }
         }
         setIsRunning(false);
+        setView('home');
     };
 
     const togglePause = () => {
@@ -1188,26 +1189,24 @@ export default function App() {
             } catch (err: any) {
               console.error("[Auth] Google sign-in operation failed:", err);
               
-              if (err.code === "auth/popup-blocked" || err.code === "auth/popup-closed-by-user") {
-                  setAuthError("Popup blocked or closed. Please try again or use redirect.");
+              if (err.name === 'SecurityError' || err.message?.includes('frame') || err.message?.includes('sandbox')) {
+                  setAuthError("Security restriction: Cannot open login page within the preview frame. Please open the app in a New Tab to sign in.");
+              } else if (err.code === "auth/popup-blocked" || err.code === "auth/popup-closed-by-user") {
+                  setAuthError("Popup blocked or closed. Please try again, or click 'OPEN IN NEW TAB / REDIRECT' below.");
                   setShowRedirectOption(true);
-                  // Automatically try redirect if popup blocked
-                  if (err.code === "auth/popup-blocked" && !useRedirect) {
-                      console.log("Automatically falling back to redirect...");
-                      await signInWithRedirect(auth, new GoogleAuthProvider());
-                  }
               } else if (err.code === "auth/unauthorized-domain") {
-                  setAuthError(`Action Required: Please add "${window.location.hostname}" to your Firebase Console (Authentication > Settings > Authorized domains). If you are in the preview, open the app in a New Tab to sign in.`);
+                  setAuthError(`Action Required: Please add "${window.location.hostname}" to your Firebase Console (Authentication > Settings > Authorized domains).`);
               } else if (err.code === "auth/network-request-failed") {
-                  setAuthError("Network request failed. This may be due to an ad-blocker or strict anti-tracking settings blocking the Google Auth popup. Please try using Redirect Login, logging as Guest, or disabling tracking protection.");
+                  setAuthError("Network request failed. This is often caused by an ad-blocker or brave shields blocking the Google Auth popup. Please use the Guest login or use a new tab.");
                   setShowRedirectOption(true);
               } else if (err.code === "auth/cancelled-popup-request") {
                   setAuthError("A sign-in request is already in progress.");
               } else {
                   setAuthError(err.message || "Failed to authenticate with Google. Please try again.");
               }
+            } finally {
+              setIsSigningIn(false);
             }
-            setIsSigningIn(false);
         };
 
         const handleGuestLogin = () => {
