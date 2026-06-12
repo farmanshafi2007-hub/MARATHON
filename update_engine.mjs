@@ -2,31 +2,23 @@ import fs from 'fs';
 
 let content = fs.readFileSync('src/App.tsx', 'utf8');
 
-const processPointRegex = /processPoint\(rawPoint: GeolocationPosition\) \{[\s\S]*?rawPoint\.timestamp \|\| Date\.now\(\);/m;
+const engineRegex = /class GPSEngine \{[\s\S]*?return \{\s*status: 'MOVING'[\s\S]*?\};\s*\}/m;
 
-const replacementProcessPoint = `processPoint(rawPoint: GeolocationPosition) {
-        let { latitude, longitude, accuracy } = rawPoint.coords;
-        const timestamp = rawPoint.timestamp || Date.now();`;
-
-content = content.replace(processPointRegex, replacementProcessPoint);
-
-// Let's replace the whole GPSEngine
-const engineRegex = /class GPSEngine \{[\s\S]*?return \{ [\s\S]*?status: 'MOVING',[\s\S]*?distance: this\.totalDistance,[\s\S]*?accuracy,[\s\S]*?speed: rollingAvMs,[\s\S]*?coords: \{ lat: latitude, lng: longitude \}[\s\S]*?\};[\s\S]*?\}/m;
-
-const replacementEngine = `class GPSEngine {
+const newEngine = `class GPSEngine {
     lastValidPoint: { lat: number, lng: number } | null = null;
-    totalDistance = 0; 
-    lastValidTime = 0;
+    totalDistance: number = 0; 
+    lastValidTime: number = 0;
     
-    kalmanLat = 0;
-    kalmanLng = 0;
-    kalmanP = 1; 
+    kalmanLat: number = 0;
+    kalmanLng: number = 0;
+    kalmanP: number = 1; 
 
-    recentPoints: { lat: number, lng: number, timestamp: number, accuracy: number }[] = [];
-    validatedMovements: { dist: number, dt: number }[] = [];
+    recentPoints: { dist: number, dt: number, timestamp: number }[] = [];
     
-    isLocked = false;
-    consecutiveGoodCount = 0;
+    isLocked: boolean = false;
+    consecutiveGoodCount: number = 0;
+    activityState: 'idle' | 'moving' = 'idle';
+    movementConfirmCount: number = 0;
 
     haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
         const R = 6371e3; 
@@ -39,7 +31,8 @@ const replacementEngine = `class GPSEngine {
     pause() {
         this.lastValidPoint = null;
         this.recentPoints = [];
-        this.validatedMovements = [];
+        this.activityState = 'idle';
+        this.movementConfirmCount = 0;
     }
 
     applyKalmanFilter(lat: number, lng: number, accuracy: number) {
@@ -50,7 +43,7 @@ const replacementEngine = `class GPSEngine {
              return { lat, lng };
          }
          const Q = 0.00001; 
-         const R = Math.pow(accuracy, 2); 
+         const R = accuracy * accuracy; 
          this.kalmanP += Q;
          const K = this.kalmanP / (this.kalmanP + R);
          this.kalmanLat = this.kalmanLat + K * (lat - this.kalmanLat);
@@ -63,11 +56,12 @@ const replacementEngine = `class GPSEngine {
         let { latitude, longitude, accuracy } = rawPoint.coords;
         const timestamp = rawPoint.timestamp || Date.now();
 
-        // Stricter accuracy for fake measurements
-        if (accuracy > 30) {
+        // 1. Adaptive Accuracy Threshold (Do not process if accuracy > 15m)
+        if (accuracy > 15) {
             return { status: 'POOR_SIGNAL', distance: this.totalDistance, accuracy, speed: 0 };
         }
 
+        // 2. Data Smoothing (Kalman Filter)
         const smoothed = this.applyKalmanFilter(latitude, longitude, accuracy);
         latitude = smoothed.lat;
         longitude = smoothed.lng;
@@ -92,7 +86,16 @@ const replacementEngine = `class GPSEngine {
         const dt = (timestamp - this.lastValidTime) / 1000; 
         if (dt <= 0) return { status: 'INVALID_TIME', distance: this.totalDistance, accuracy, speed: 0 };
 
+        // 3. Distance Calculation (Haversine)
         const dist = this.haversine(this.lastValidPoint.lat, this.lastValidPoint.lng, latitude, longitude);
+        
+        // 4. Movement filtering ('Dead-band' logic < 3 meters)
+        if (dist < 3) {
+            this.movementConfirmCount = 0;
+            this.activityState = 'idle';
+            return { status: 'STATIONARY', distance: this.totalDistance, accuracy, speed: 0 };
+        }
+
         const speedMs = dist / dt;
         const speedKmh = speedMs * 3.6;
 
@@ -100,27 +103,35 @@ const replacementEngine = `class GPSEngine {
             return { status: 'Signal Lost', distance: this.totalDistance, accuracy, speed: 0 }; 
         }
 
-        // Higher boundary for GPS jitter (at least 15 meters changed or speed > 2.0 km/h)
-        const noiseFloor = Math.max(12, accuracy);
-        
-        if (dist < noiseFloor || speedKmh < 1.5) { 
-            return { status: 'STATIONARY', distance: this.totalDistance, accuracy, speed: 0 };
+        // 5. Activity State Management (Confirm moving by 3 consecutive points)
+        this.movementConfirmCount++;
+        if (this.movementConfirmCount >= 3) {
+            this.activityState = 'moving';
         }
 
+        // Update permanent distance only if we passed dead-band
         this.totalDistance += dist;
         this.lastValidPoint = { lat: latitude, lng: longitude };
         this.lastValidTime = timestamp;
 
-        this.validatedMovements.push({ dist, dt });
-        const fresh = [];
-        let sumDist = 0; let sumDt = 0;
-        for (const mov of this.validatedMovements) {
-            sumDist += mov.dist;
-            sumDt += mov.dt;
-            fresh.push(mov);
+        // 6. Pace Calculation (Rolling Average last 30 seconds)
+        this.recentPoints.push({ dist, dt, timestamp });
+        
+        // Clean out points older than 30 seconds
+        this.recentPoints = this.recentPoints.filter(p => (timestamp - p.timestamp) <= 30000);
+
+        let sumDist = 0;
+        let sumDt = 0;
+        for (const pt of this.recentPoints) {
+            sumDist += pt.dist;
+            sumDt += pt.dt;
         }
-        this.validatedMovements = fresh.slice(-10); 
-        const rollingAvMs = sumDt > 0 ? (sumDist / sumDt) : 0;
+
+        // Only calculate speed if state is 'moving'
+        let rollingAvMs = 0;
+        if (this.activityState === 'moving' && sumDt > 0) {
+            rollingAvMs = sumDist / sumDt;
+        }
 
         return { 
             status: 'MOVING', 
@@ -131,6 +142,5 @@ const replacementEngine = `class GPSEngine {
         };
     }`;
 
-content = content.replace(engineRegex, replacementEngine);
-
+content = content.replace(engineRegex, newEngine);
 fs.writeFileSync('src/App.tsx', content);
