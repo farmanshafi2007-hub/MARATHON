@@ -515,10 +515,9 @@ export default function App() {
         if (!db) return;
         try {
           await getDocFromServer(doc(db, 'test', 'connection'));
-          console.log("[Auth] Connection test to Firestore succeeded.");
         } catch (error) {
           if(error instanceof Error && error.message.includes('the client is offline')) {
-            console.error("Please check your Firebase configuration. ");
+            console.warn("Client offline or network blocked for connection test. Check your Firebase config if data fails to load.");
           }
         }
       }
@@ -1195,7 +1194,7 @@ export default function App() {
                   setAuthError("Popup blocked or closed. Please try again, or click 'OPEN IN NEW TAB / REDIRECT' below.");
                   setShowRedirectOption(true);
               } else if (err.code === "auth/unauthorized-domain") {
-                  setAuthError(`Action Required: Please add "${window.location.hostname}" to your Firebase Console (Authentication > Settings > Authorized domains).`);
+                  setAuthError(`Action Required: Please add "${window.location.hostname}" to your Firebase Console (Authentication > Settings > Authorized domains). If in preview, also ensure development URLs are added.`);
               } else if (err.code === "auth/network-request-failed") {
                   setAuthError("Network request failed. This is often caused by an ad-blocker or brave shields blocking the Google Auth popup. Please use the Guest login or use a new tab.");
                   setShowRedirectOption(true);

@@ -12,10 +12,18 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    match /test/connection {
+      allow read: if true;
+    }
+
     // 1. Users Collection
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner(userId);
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Runs Subcollection
+      match /runs/{runId} {
+        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      }
     }
     
     // 2. Activities Collection

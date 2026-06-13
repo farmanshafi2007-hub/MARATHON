@@ -28,7 +28,7 @@ try {
     
     isFirebaseAvailable = true;
   } else {
-    throw new Error("Missing required config attributes in firebase-applet-config.json");
+    throw new Error("Missing required config attributes");
   }
 } catch (error: any) {
   firebaseInitError = error?.message || String(error);

@@ -1,6 +1,5 @@
-import { initializeApp } from "firebase/app";
+import { db } from "./firebase";
 import { 
-  getFirestore, 
   doc, 
   setDoc, 
   collection, 
@@ -14,20 +13,6 @@ import {
   orderBy, 
   onSnapshot
 } from "firebase/firestore";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyAwA2fAP-il12vsyeFEy5QEr_1n9qWRpXk",
-  authDomain: "official-run-615df.firebaseapp.com",
-  databaseURL: "https://official-run-615df-default-rtdb.firebaseio.com",
-  projectId: "official-run-615df",
-  storageBucket: "official-run-615df.firebasestorage.app",
-  messagingSenderId: "1034499388791",
-  appId: "1:1034499388791:web:fc892a70034a44462edd72"
-};
-
-// 1. Initialization & Export
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
 
 // 2. User Profiles
 /**
